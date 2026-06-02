@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -36,19 +36,29 @@ class Chunk(Base):
         nullable=False,
     )
 
-    page_number: Mapped[int] = mapped_column(
+    page_number: Mapped[int | None] = mapped_column(
         Integer,
-        nullable=False,
+        nullable=True,
     )
 
-    start_char: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
+    start_time_seconds: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
     )
 
-    end_char: Mapped[int] = mapped_column(
+    end_time_seconds: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+
+    start_char: Mapped[int | None] = mapped_column(
         Integer,
-        nullable=False,
+        nullable=True,
+    )
+
+    end_char: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
     )
 
     embedding: Mapped[list[float] | None] = mapped_column(
