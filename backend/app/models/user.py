@@ -10,6 +10,7 @@ from app.database import Base
 
 if TYPE_CHECKING:
     from app.models.document import Document
+    from app.models.chat import Chat
 
 
 class User(Base):
@@ -22,6 +23,12 @@ class User(Base):
     )
 
     documents: Mapped[list["Document"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    chats: Mapped[list["Chat"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
         passive_deletes=True,

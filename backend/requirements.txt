@@ -7,3 +7,5 @@ python-dotenv
 pgvector
 alembic
 pytest
+pwdlib[argon2]
+email-validator
