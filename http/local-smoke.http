@@ -1,0 +1,40 @@
+# POST /auth/register
+# POST /chats?user_id=<USER_ID>
+# GET /chats?user_id=<USER_ID>
+# POST /chats/{chat_id}/messages?user_id=<USER_ID>
+# GET /chats/{chat_id}/messages?user_id=<USER_ID>
+
+@baseUrl = http://127.0.0.1:8000
+@userId = replace-with-user-id
+@chatId = replace-with-chat-id
+
+###
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "abc@example.com",
+  "password": "password123"
+}
+
+###
+GET {{baseUrl}}/chats?user_id={{userId}}
+
+###
+POST {{baseUrl}}/chats?user_id={{userId}}
+Content-Type: application/json
+
+{
+  "title": "Local Smoke Chat"
+}
+
+###
+GET {{baseUrl}}/chats/{{chatId}}/messages?user_id={{userId}}
+
+###
+POST {{baseUrl}}/chats/{{chatId}}/messages?user_id={{userId}}
+Content-Type: application/json
+
+{
+  "content": "create message"
+}
