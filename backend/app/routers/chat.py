@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.dependencies import get_chat_service
 from app.schemas.chat import (
@@ -23,7 +23,13 @@ def list_chats(
     user_id: uuid.UUID,
     chat_service: Annotated[ChatService, Depends(get_chat_service)],
 ):
-    return chat_service.list_user_chats(user_id=user_id)
+    try:
+        return chat_service.list_user_chats(user_id=user_id)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(error),
+        ) from error
 
 
 @router.post("", response_model=ChatRead)
@@ -32,10 +38,16 @@ def create_chat(
     user_id: uuid.UUID,
     chat_service: Annotated[ChatService, Depends(get_chat_service)],
 ):
-    return chat_service.create_chat(
-        user_id=user_id,
-        title=payload.title,
-    )
+    try:
+        return chat_service.create_chat(
+            user_id=user_id,
+            title=payload.title,
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(error),
+        ) from error
 
 
 @router.get("/{chat_id}/messages", response_model=list[ChatMessageRead])
@@ -44,10 +56,22 @@ def list_chat_messages(
     user_id: uuid.UUID,
     chat_service: Annotated[ChatService, Depends(get_chat_service)],
 ):
-    return chat_service.list_chat_messages(
-        user_id=user_id,
-        chat_id=chat_id,
-    )
+
+    try:
+        return chat_service.list_chat_messages(
+            user_id=user_id,
+            chat_id=chat_id,
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(error),
+        ) from error
+    except PermissionError as error:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(error),
+        ) from error
 
 
 @router.post("/{chat_id}/messages", response_model=ChatMessageRead)
@@ -57,8 +81,19 @@ def create_user_message(
     user_id: uuid.UUID,
     chat_service: Annotated[ChatService, Depends(get_chat_service)],
 ):
-    return chat_service.create_user_message(
-        user_id=user_id,
-        chat_id=chat_id,
-        content=payload.content,
-    )
+    try:
+        return chat_service.create_user_message(
+            user_id=user_id,
+            chat_id=chat_id,
+            content=payload.content,
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(error),
+        ) from error
+    except PermissionError as error:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(error),
+        ) from error

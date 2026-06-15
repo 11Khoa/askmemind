@@ -3,19 +3,29 @@ import uuid
 from app.models.chat import Chat
 from app.models.chat_message import ChatMessage
 from app.repositories.chat_repository import ChatRepository
+from app.repositories.user_repository import UserRepository
 
 
 class ChatService:
-    def __init__(self, chat_repository: ChatRepository):
+    def __init__(self, chat_repository: ChatRepository, user_repository: UserRepository):
         self.chat_repository = chat_repository
+        self.user_repository = user_repository
 
     def create_chat(self, user_id: uuid.UUID, title: str | None) -> Chat:
+        user = self.user_repository.get_user_by_id(user_id)
+        if user is None:
+            raise ValueError("User not found")
+
         return self.chat_repository.create_chat(
             user_id=user_id,
             title=title,
         )
 
     def list_user_chats(self, user_id: uuid.UUID) -> list[Chat]:
+        user = self.user_repository.get_user_by_id(user_id)
+        if user is None:
+            raise ValueError("User not found")
+
         return self.chat_repository.list_chats_by_user(user_id=user_id)
 
     def get_user_chat(self, user_id: uuid.UUID, chat_id: uuid.UUID) -> Chat:

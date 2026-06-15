@@ -13,8 +13,12 @@ from app.services.chat_service import ChatService
 def get_chat_service(
     db: Annotated[Session, Depends(get_db)],
 ) -> ChatService:
+    user_repository = UserRepository(db=db)
     chat_repository = ChatRepository(db=db)
-    return ChatService(chat_repository=chat_repository)
+    return ChatService(
+        chat_repository=chat_repository,
+        user_repository=user_repository,
+    )
 
 
 def get_auth_service(
