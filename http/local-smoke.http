@@ -7,6 +7,7 @@
 @baseUrl = http://127.0.0.1:8000
 @userId = replace-with-user-id
 @chatId = replace-with-chat-id
+@accessToken = replace-with-access-token
 
 ###
 POST {{baseUrl}}/auth/register
@@ -18,10 +19,25 @@ Content-Type: application/json
 }
 
 ###
-GET {{baseUrl}}/chats?user_id={{userId}}
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "abc@example.com",
+  "password": "password1234"
+}
 
 ###
-POST {{baseUrl}}/chats?user_id={{userId}}
+GET {{baseUrl}}/auth/me
+Authorization: Bearer {{accessToken}}
+
+###
+GET {{baseUrl}}/chats
+Authorization: Bearer {{accessToken}}
+
+###
+POST {{baseUrl}}/chats
+Authorization: Bearer {{accessToken}}
 Content-Type: application/json
 
 {
@@ -29,10 +45,12 @@ Content-Type: application/json
 }
 
 ###
-GET {{baseUrl}}/chats/{{chatId}}/messages?user_id={{userId}}
+GET {{baseUrl}}/chats/{{chatId}}/messages
+Authorization: Bearer {{accessToken}}
 
 ###
-POST {{baseUrl}}/chats/{{chatId}}/messages?user_id={{userId}}
+POST {{baseUrl}}/chats/{{chatId}}/messages
+Authorization: Bearer {{accessToken}}
 Content-Type: application/json
 
 {

@@ -1,5 +1,6 @@
-from app.core.security import hash_password
+from app.core.security import create_access_token, hash_password, verify_password
 from app.models.user import User
+from app.schemas.user import TokenResponse
 from app.repositories.user_repository import UserRepository
 
 
@@ -19,3 +20,17 @@ class AuthService:
             email=email,
             hashed_password=hashed_password,
         )
+
+    def login_user(self, email: str, password: str) -> TokenResponse:
+        user = self.user_repository.get_user_by_email(email=email)
+
+        if user is None:
+            raise ValueError("Invalid email or password")
+
+        password_is_valid = verify_password(password, user.hashed_password)
+
+        if password_is_valid is False:
+            raise ValueError("Invalid email or password")
+
+        token = create_access_token(subject=str(user.id))
+        return TokenResponse(access_token=token)
