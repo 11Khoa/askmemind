@@ -8,9 +8,11 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.repositories.chat_repository import ChatRepository
+from app.repositories.document_repository import DocumentRepository
 from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
 from app.services.chat_service import ChatService
+from app.services.document_service import DocumentService
 from app.models.user import User
 from app.core.security import decode_access_token
 
@@ -61,3 +63,15 @@ def get_current_user(
         )
 
     return user
+
+
+def get_document_service(
+    db: Annotated[Session, Depends(get_db)],
+) -> DocumentService:
+    user_repository = UserRepository(db=db)
+    document_repository = DocumentRepository(db=db)
+
+    return DocumentService(
+        document_repository=document_repository,
+        user_repository=user_repository,
+    )
