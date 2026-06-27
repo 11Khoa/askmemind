@@ -13,7 +13,9 @@ from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
 from app.services.chat_service import ChatService
 from app.services.document_service import DocumentService
+from app.services.file_storage_service import FileStorageService
 from app.models.user import User
+from app.core.config import settings
 from app.core.security import decode_access_token
 
 
@@ -75,3 +77,7 @@ def get_document_service(
         document_repository=document_repository,
         user_repository=user_repository,
     )
+
+
+def get_file_storage_service() -> FileStorageService:
+    return FileStorageService(upload_dir=str(settings.resolved_upload_dir))

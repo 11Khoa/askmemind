@@ -22,5 +22,12 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    @property
+    def resolved_upload_dir(self) -> Path:
+        upload_path = Path(self.upload_dir)
+        
+        if upload_path.is_absolute():
+            return upload_path
+        return BASE_DIR / upload_path
 
 settings = Settings()
