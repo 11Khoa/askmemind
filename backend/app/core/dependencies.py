@@ -10,10 +10,15 @@ from app.database import get_db
 from app.repositories.chat_repository import ChatRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.user_repository import UserRepository
+from app.repositories.chunk_repository import ChunkRepository
 from app.services.auth_service import AuthService
 from app.services.chat_service import ChatService
 from app.services.document_service import DocumentService
 from app.services.file_storage_service import FileStorageService
+from app.services.chunk_persistence_service import ChunkPersistenceService
+from app.services.chunk_service import ChunkingService
+from app.services.document_processing_service import DocumentProcessingService
+from app.services.extraction.pdf_extraction_service import PdfExtractionService
 from app.models.user import User
 from app.core.config import settings
 from app.core.security import decode_access_token
@@ -81,3 +86,20 @@ def get_document_service(
 
 def get_file_storage_service() -> FileStorageService:
     return FileStorageService(upload_dir=str(settings.resolved_upload_dir))
+
+
+def get_document_processing_service(
+    db: Annotated[Session, Depends(get_db)],
+) -> DocumentProcessingService:
+    chunk_repository = ChunkRepository(db=db)
+
+    chunk_persistence_service = ChunkPersistenceService(
+        chunk_repository=chunk_repository,
+    )
+
+    return DocumentProcessingService(
+        extraction_service=PdfExtractionService(),
+        chunking_service=ChunkingService(),
+        chunk_persistence_service=chunk_persistence_service,
+        unit_of_work=db,
+    )
