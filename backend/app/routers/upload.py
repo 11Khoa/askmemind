@@ -1,4 +1,5 @@
 import uuid
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, status, UploadFile
@@ -6,10 +7,12 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.dependencies import (
     get_current_user,
+    get_document_processing_service,
     get_document_service,
     get_file_storage_service,
 )
 from app.schemas.document import DocumentRead
+from app.services.document_processing_service import DocumentProcessingService
 from app.services.document_service import DocumentService
 from app.services.file_storage_service import FileStorageService
 from app.models.user import User
@@ -27,6 +30,10 @@ def upload_document(
     current_user: Annotated[User, Depends(get_current_user)],
     document_service: Annotated[DocumentService, Depends(get_document_service)],
     file_storage_service: Annotated[FileStorageService, Depends(get_file_storage_service)],
+    document_processing_service: Annotated[
+        DocumentProcessingService,
+        Depends(get_document_processing_service),
+    ],
 ):
     file_bytes = file.file.read()
     file_size_bytes = len(file_bytes)
@@ -39,7 +46,7 @@ def upload_document(
     )
 
     try:
-        return document_service.create_uploaded_document(
+        document = document_service.create_uploaded_document(
             user_id=current_user.id,
             filename=filename,
             original_filename=original_filename,
@@ -59,3 +66,19 @@ def upload_document(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Could not save uploaded document",
         ) from error
+
+    try:
+        document_processing_service.process_document(
+            document_id=document.id,
+            file_path=Path(file_path),
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not process uploaded document",
+        ) from error
+
+    return document_service.get_user_document(
+        user_id=current_user.id,
+        document_id=document.id,
+    )
