@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from app.core.types import DocumentStatus
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -67,7 +68,7 @@ class Document(Base):
     status: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
-        default="uploaded",
+        default=DocumentStatus.UPLOADED.value,
         index=True,
     )
 

@@ -92,12 +92,14 @@ def get_document_processing_service(
     db: Annotated[Session, Depends(get_db)],
 ) -> DocumentProcessingService:
     chunk_repository = ChunkRepository(db=db)
+    document_repository = DocumentRepository(db=db)
 
     chunk_persistence_service = ChunkPersistenceService(
         chunk_repository=chunk_repository,
     )
 
     return DocumentProcessingService(
+        document_repository=document_repository,
         extraction_service=PdfExtractionService(),
         chunking_service=ChunkingService(),
         chunk_persistence_service=chunk_persistence_service,

@@ -2,6 +2,7 @@ import uuid
 
 from sqlalchemy.orm import Session
 
+from app.core.types import DocumentStatus
 from app.models.document import Document
 
 
@@ -17,7 +18,7 @@ class DocumentRepository:
         file_path: str,
         content_type: str,
         file_size_bytes: int,
-        status: str,
+        status: DocumentStatus,
         source_type: str,
         source_metadata: dict | None = None,
     ) -> Document:
@@ -28,7 +29,7 @@ class DocumentRepository:
             file_path=file_path,
             content_type=content_type,
             file_size_bytes=file_size_bytes,
-            status=status,
+            status=status.value,
             source_type=source_type,
             source_metadata=source_metadata,
         )
@@ -49,3 +50,39 @@ class DocumentRepository:
             .order_by(Document.created_at.desc())
             .all()
         )
+
+    def mark_processing_started(
+        self,
+        document: Document,
+    ) -> Document:
+        document.status = DocumentStatus.PROCESSING.value
+        document.error_message = None
+
+        self.db.flush()
+
+        return document
+
+    def mark_processing_completed(
+        self,
+        document: Document,
+        page_count: int | None,
+    ) -> Document:
+        document.status = DocumentStatus.COMPLETED.value
+        document.page_count = page_count
+        document.error_message = None
+
+        self.db.flush()
+
+        return document
+
+    def mark_processing_failed(
+        self,
+        document: Document,
+        error_message: str,
+    ) -> Document:
+        document.status = DocumentStatus.FAILED.value
+        document.error_message = error_message
+
+        self.db.flush()
+
+        return document

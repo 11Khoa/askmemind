@@ -3,6 +3,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from app.core.types import DocumentStatus
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.user_repository import UserRepository
 from app.services.document_service import DocumentService
@@ -41,7 +42,7 @@ def test_create_uploaded_document_success() -> None:
         file_path="/uploads/stored.pdf",
         content_type="application/pdf",
         file_size_bytes=123,
-        status="uploaded",
+        status=DocumentStatus.UPLOADED,
         source_type="pdf",
         source_metadata=None,
     )

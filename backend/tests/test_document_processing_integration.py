@@ -3,9 +3,11 @@ from pathlib import Path
 import fitz
 from sqlalchemy.orm import Session
 
+from app.core.types import DocumentStatus
 from app.models.document import Document
 from app.models.user import User
 from app.models.chunk import Chunk
+from app.repositories.document_repository import DocumentRepository
 from app.repositories.chunk_repository import ChunkRepository
 from app.services.chunk_persistence_service import ChunkPersistenceService
 from app.services.chunk_service import ChunkingService
@@ -48,6 +50,7 @@ def test_document_processing_pipeline_persists_pdf_chunks(
     db_session.flush()
 
     chunk_repository = ChunkRepository(db=db_session)
+    document_repository = DocumentRepository(db=db_session)
 
     chunk_persistence_service = ChunkPersistenceService(
         chunk_repository=chunk_repository,
@@ -57,6 +60,7 @@ def test_document_processing_pipeline_persists_pdf_chunks(
         extraction_service=PdfExtractionService(),
         chunking_service=ChunkingService(),
         chunk_persistence_service=chunk_persistence_service,
+        document_repository=document_repository,
         unit_of_work=db_session,
     )
 
@@ -88,3 +92,10 @@ def test_document_processing_pipeline_persists_pdf_chunks(
     ]
     assert [chunk.start_char for chunk in persisted_chunks] == [0, 0]
     assert [chunk.end_char for chunk in persisted_chunks] == [21, 21]
+
+    persisted_document = db_session.get(Document, source_document.id)
+
+    assert persisted_document is not None
+    assert persisted_document.status == DocumentStatus.COMPLETED.value
+    assert persisted_document.page_count == 2
+    assert persisted_document.error_message is None

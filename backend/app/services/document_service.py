@@ -1,5 +1,6 @@
 import uuid
 
+from app.core.types import DocumentStatus
 from app.models.document import Document
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.user_repository import UserRepository
@@ -69,7 +70,7 @@ class DocumentService:
             file_path=file_path,
             content_type=content_type,
             file_size_bytes=file_size_bytes,
-            status="uploaded",
+            status=DocumentStatus.UPLOADED,
             source_type="pdf",
             source_metadata=None,
         )
