@@ -13,6 +13,15 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
 
+    embedding_provider: str = "nvidia"
+    embedding_model: str = "nvidia/llama-nemotron-embed-1b-v2"
+    embedding_base_url: str = "https://integrate.api.nvidia.com/v1"
+    embedding_dimensions: int = 1024
+    nvidia_api_key: str = ""
+
+    llm_provider: str = "openai"
+    llm_model: str = ""
+
     upload_dir: str = "storage/uploads"
     temp_dir: str = "storage/temp"
 
@@ -25,7 +34,7 @@ class Settings(BaseSettings):
     @property
     def resolved_upload_dir(self) -> Path:
         upload_path = Path(self.upload_dir)
-        
+
         if upload_path.is_absolute():
             return upload_path
         return BASE_DIR / upload_path
