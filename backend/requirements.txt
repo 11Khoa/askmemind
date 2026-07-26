@@ -12,3 +12,4 @@ email-validator
 PyJWT
 python-multipart
 PyMuPDF
+httpx
