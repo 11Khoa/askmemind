@@ -19,6 +19,8 @@ from app.services.chunk_persistence_service import ChunkPersistenceService
 from app.services.chunk_service import ChunkingService
 from app.services.document_processing_service import DocumentProcessingService
 from app.services.extraction.pdf_extraction_service import PdfExtractionService
+from app.services.embedding_service import EmbeddingService
+from app.services.providers.nvidia_embedding_provider import NvidiaEmbeddingProvider
 from app.models.user import User
 from app.core.config import settings
 from app.core.security import decode_access_token
@@ -104,4 +106,27 @@ def get_document_processing_service(
         chunking_service=ChunkingService(),
         chunk_persistence_service=chunk_persistence_service,
         unit_of_work=db,
+    )
+
+
+def get_embedding_service() -> EmbeddingService:
+    if settings.embedding_provider == "nvidia":
+        if not settings.nvidia_api_key:
+            raise ValueError(
+                "NVIDIA_API_KEY is required for NVIDIA embeddings"
+            )
+
+        provider = NvidiaEmbeddingProvider(
+            api_key=settings.nvidia_api_key,
+            base_url=settings.embedding_base_url,
+            model=settings.embedding_model,
+        )
+
+        return EmbeddingService(
+            provider=provider,
+            embedding_dimensions=settings.embedding_dimensions,
+        )
+
+    raise ValueError(
+        f"Unsupported embedding provider: {settings.embedding_provider}"
     )
