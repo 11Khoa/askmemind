@@ -6,6 +6,7 @@ from app.models.chunk import Chunk
 from app.repositories.document_repository import DocumentRepository
 from app.services.chunk_persistence_service import ChunkPersistenceService
 from app.services.chunk_service import ChunkingService
+from app.services.embedding_service import EmbeddingService
 from app.services.extraction.base import SourceExtractionService
 
 
@@ -14,12 +15,14 @@ class DocumentProcessingService:
         self,
         extraction_service: SourceExtractionService,
         chunking_service: ChunkingService,
+        embedding_service: EmbeddingService,
         chunk_persistence_service: ChunkPersistenceService,
         document_repository: DocumentRepository,
         unit_of_work: UnitOfWork,
     ) -> None:
         self.extraction_service = extraction_service
         self.chunking_service = chunking_service
+        self.embedding_service = embedding_service
         self.chunk_persistence_service = chunk_persistence_service
         self.document_repository = document_repository
         self.unit_of_work = unit_of_work
@@ -48,9 +51,20 @@ class DocumentProcessingService:
                 source=extracted_source,
             )
 
+            embeddings = self.embedding_service.embed_passages(
+                texts=[
+                    text_chunk.content
+                    for text_chunk in text_chunks
+                ],
+            )
+
             persisted_chunks = self.chunk_persistence_service.persist_chunks(
                 document_id=document_id,
                 text_chunks=text_chunks,
+                embeddings=embeddings,
+                embedding_provider=self.embedding_service.embedding_provider,
+                embedding_model=self.embedding_service.embedding_model,
+                embedding_dimensions=self.embedding_service.embedding_dimensions,
             )
 
             page_count = extracted_source.metadata.get("page_count")

@@ -19,9 +19,11 @@ def test_embedding_service_builds_nvidia_embedding_service(monkeypatch) -> None:
 
     service = dependencies.get_embedding_service()
 
-    assert isinstance(service,EmbeddingService)
+    assert isinstance(service, EmbeddingService)
+    assert service.embedding_provider == "nvidia"
+    assert service.embedding_model == "test-embedding-model"
     assert service.embedding_dimensions == 1024
-    assert isinstance(service.provider,NvidiaEmbeddingProvider)
+    assert isinstance(service.provider, NvidiaEmbeddingProvider)
     assert service.provider.api_key == "nvidia-api-key"
     assert service.provider.base_url == "https://example.com/v1"
     assert service.provider.model == "test-embedding-model"

@@ -14,7 +14,13 @@ class ChunkPersistenceService:
         self,
         document_id: uuid.UUID,
         text_chunks: Sequence[TextChunk],
+        embeddings: Sequence[list[float]],
+        embedding_provider: str,
+        embedding_model: str,
+        embedding_dimensions: int,
     ) -> list[Chunk]:
+        if len(text_chunks) != len(embeddings):
+            raise ValueError("Text chunks and embeddings must have the same length")
         chunks_data = [
             {
                 "chunk_index": text_chunk.chunk_index,
@@ -24,9 +30,13 @@ class ChunkPersistenceService:
                 "end_char": text_chunk.end_char,
                 "start_time_seconds": text_chunk.start_time_seconds,
                 "end_time_seconds": text_chunk.end_time_seconds,
+                "embedding": embedding,
+                "embedding_provider": embedding_provider,
+                "embedding_model": embedding_model,
+                "embedding_dimensions": embedding_dimensions,
                 "chunk_metadata": dict(text_chunk.metadata),
             }
-            for text_chunk in text_chunks
+            for text_chunk, embedding in zip(text_chunks, embeddings)
         ]
         return self.chunk_repository.create_chunks(
             document_id=document_id,

@@ -25,6 +25,10 @@ class ChunkRepository:
                 end_char=chunk_data.get("end_char"),
                 start_time_seconds=chunk_data.get("start_time_seconds"),
                 end_time_seconds=chunk_data.get("end_time_seconds"),
+                embedding=chunk_data.get("embedding"),
+                embedding_provider=chunk_data.get("embedding_provider"),
+                embedding_model=chunk_data.get("embedding_model"),
+                embedding_dimensions=chunk_data.get("embedding_dimensions"),
                 chunk_metadata=chunk_data.get("chunk_metadata"),
             )
             for chunk_data in chunks_data

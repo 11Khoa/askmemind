@@ -19,9 +19,13 @@ class EmbeddingService:
     def __init__(
         self,
         provider: EmbeddingProvider,
+        embedding_provider: str,
+        embedding_model: str,
         embedding_dimensions: int,
     ) -> None:
         self.provider = provider
+        self.embedding_provider = embedding_provider
+        self.embedding_model = embedding_model
         self.embedding_dimensions = embedding_dimensions
 
     def _validate_embedding_dimensions(

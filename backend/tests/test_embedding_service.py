@@ -14,6 +14,8 @@ def test_embed_passages_returns_valid_embeddings() -> None:
 
     service = EmbeddingService(
         provider=provider,
+        embedding_provider="test-provider",
+        embedding_model="test-model",
         embedding_dimensions=3,
     )
 
@@ -35,6 +37,8 @@ def test_embed_query_returns_valid_embedding() -> None:
 
     service = EmbeddingService(
         provider=provider,
+        embedding_provider="test-provider",
+        embedding_model="test-model",
         embedding_dimensions=3,
     )
 
@@ -50,6 +54,8 @@ def test_embed_passages_raises_when_embedding_dimension_is_wrong() -> None:
 
     service = EmbeddingService(
         provider=provider,
+        embedding_provider="test-provider",
+        embedding_model="test-model",
         embedding_dimensions=3,
     )
 
@@ -63,6 +69,8 @@ def test_embed_query_raises_when_embedding_dimension_is_wrong() -> None:
 
     service = EmbeddingService(
         provider=provider,
+        embedding_provider="test-provider",
+        embedding_model="test-model",
         embedding_dimensions=3,
     )
 

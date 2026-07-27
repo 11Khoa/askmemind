@@ -99,12 +99,14 @@ def get_document_processing_service(
     chunk_persistence_service = ChunkPersistenceService(
         chunk_repository=chunk_repository,
     )
+    embedding_service = get_embedding_service()
 
     return DocumentProcessingService(
         document_repository=document_repository,
         extraction_service=PdfExtractionService(),
         chunking_service=ChunkingService(),
         chunk_persistence_service=chunk_persistence_service,
+        embedding_service=embedding_service,
         unit_of_work=db,
     )
 
@@ -124,6 +126,8 @@ def get_embedding_service() -> EmbeddingService:
 
         return EmbeddingService(
             provider=provider,
+            embedding_provider=settings.embedding_provider,
+            embedding_model=settings.embedding_model,
             embedding_dimensions=settings.embedding_dimensions,
         )
 
