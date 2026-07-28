@@ -2,8 +2,10 @@ import uuid
 from collections.abc import Sequence
 
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 
 from app.models.chunk import Chunk
+from app.models.document import Document
 
 
 class ChunkRepository:
@@ -60,3 +62,33 @@ class ChunkRepository:
         self.db.flush()
 
         return delete_count
+
+    def search_similar_chunks(
+        self,
+        embedding: list[float],
+        user_id: uuid.UUID,
+        document_id: uuid.UUID | None = None,
+        top_k: int = 5,
+    ) -> list[tuple[Chunk, float]]:
+        distance = Chunk.embedding.cosine_distance(embedding).label("distance")
+
+        statement = (
+            select(Chunk, distance)
+            .join(Document, Chunk.document_id == Document.id)
+            .where(
+                Document.user_id == user_id,
+                Chunk.embedding.is_not(None),
+            )
+        )
+
+        if document_id is not None:
+            statement = statement.where(Chunk.document_id == document_id)
+
+        statement = statement.order_by(distance.asc()).limit(top_k)
+
+        rows = self.db.execute(statement).all()
+
+        return [
+            (chunk, distance)
+            for chunk, distance in rows
+        ]

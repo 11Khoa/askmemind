@@ -220,7 +220,7 @@ def test_delete_chunks_by_document_deletes_only_selected_document(db_session: Se
     second_document_chunks = repository.list_chunks_by_document(
         document_id=document_second.id,
     )
-    
+
     assert deleted_count == 2
     assert first_document_chunks == []
 
@@ -230,3 +230,238 @@ def test_delete_chunks_by_document_deletes_only_selected_document(db_session: Se
         second_document_chunks[0].content
         == "Content document second from the first PDF page."
     )
+
+
+def make_embedding(index: int) -> list[float]:
+    embedding = [0.0] * 1024
+    embedding[index] = 1.0
+    return embedding
+
+
+def test_search_similar_chunks_returns_chunks_ordered_by_cosine_distance(
+    db_session: Session,
+) -> None:
+    user = User(
+        email="chunk-vector-search@gmail.com",
+        hashed_password="hashed",
+    )
+
+    document = Document(
+        filename="vector-search-test.pdf",
+        original_filename="vector-search-test.pdf",
+        file_path="/tmp/vector-search-test.pdf",
+        content_type="application/pdf",
+        file_size_bytes=500,
+    )
+
+    user.documents.append(document)
+    db_session.add(user)
+    db_session.flush()
+
+    repository = ChunkRepository(db_session)
+
+    repository.create_chunks(
+        document_id=document.id,
+        chunks_data=[
+            {
+                "chunk_index": 0,
+                "content": "Most relevant chunk",
+                "embedding": make_embedding(0),
+                "embedding_provider": "test-provider",
+                "embedding_model": "test-model",
+                "embedding_dimensions": 1024,
+            },
+            {
+                "chunk_index": 1,
+                "content": "Less relevant chunk",
+                "embedding": make_embedding(1),
+                "embedding_provider": "test-provider",
+                "embedding_model": "test-model",
+                "embedding_dimensions": 1024,
+            },
+            {
+                "chunk_index": 2,
+                "content": "Another less relevant chunk",
+                "embedding": make_embedding(2),
+                "embedding_provider": "test-provider",
+                "embedding_model": "test-model",
+                "embedding_dimensions": 1024,
+            },
+        ],
+    )
+
+    results = repository.search_similar_chunks(
+        embedding=make_embedding(0),
+        user_id=user.id,
+        top_k=2,
+    )
+    assert len(results) == 2
+    assert results[0][0].content == "Most relevant chunk"
+    assert results[0][1] == 0
+
+
+def test_search_similar_chunks_filters_by_document_id(
+    db_session: Session,
+) -> None:
+    user = User(
+        email="chunk-vector-filter@gmail.com",
+        hashed_password="hashed",
+    )
+
+    first_document = Document(
+        filename="first-vector-search.pdf",
+        original_filename="first-vector-search.pdf",
+        file_path="/tmp/first-vector-search.pdf",
+        content_type="application/pdf",
+        file_size_bytes=500,
+    )
+
+    second_document = Document(
+        filename="second-vector-search.pdf",
+        original_filename="second-vector-search.pdf",
+        file_path="/tmp/second-vector-search.pdf",
+        content_type="application/pdf",
+        file_size_bytes=500,
+    )
+
+    user.documents.append(first_document)
+    user.documents.append(second_document)
+    db_session.add(user)
+    db_session.flush()
+
+    repository = ChunkRepository(db_session)
+
+    repository.create_chunks(
+        document_id=first_document.id,
+        chunks_data=[
+            {
+                "chunk_index": 0,
+                "content": "First document chunk",
+                "embedding": make_embedding(0),
+                "embedding_provider": "test-provider",
+                "embedding_model": "test-model",
+                "embedding_dimensions": 1024,
+            },
+        ],
+    )
+
+    repository.create_chunks(
+        document_id=second_document.id,
+        chunks_data=[
+            {
+                "chunk_index": 0,
+                "content": "Second document chunk",
+                "embedding": make_embedding(0),
+                "embedding_provider": "test-provider",
+                "embedding_model": "test-model",
+                "embedding_dimensions": 1024,
+            },
+        ],
+    )
+
+    results = repository.search_similar_chunks(
+        embedding=make_embedding(0),
+        user_id=user.id,
+        document_id=second_document.id,
+        top_k=5,
+    )
+
+    assert len(results) == 1
+    assert results[0][0].document_id == second_document.id
+    assert results[0][0].content == "Second document chunk"
+
+def test_search_similar_chunks_searches_all_documents_for_one_user(
+    db_session: Session,
+) -> None:
+    first_user = User(
+        email="chunk-vector-user-scope-first@gmail.com",
+        hashed_password="hashed",
+    )
+    second_user = User(
+        email="chunk-vector-user-scope-second@gmail.com",
+        hashed_password="hashed",
+    )
+
+    first_user_document = Document(
+        filename="first-user-vector-search.pdf",
+        original_filename="first-user-vector-search.pdf",
+        file_path="/tmp/first-user-vector-search.pdf",
+        content_type="application/pdf",
+        file_size_bytes=500,
+    )
+    first_user_second_document = Document(
+        filename="first-user-second-vector-search.pdf",
+        original_filename="first-user-second-vector-search.pdf",
+        file_path="/tmp/first-user-second-vector-search.pdf",
+        content_type="application/pdf",
+        file_size_bytes=500,
+    )
+    second_user_document = Document(
+        filename="second-user-vector-search.pdf",
+        original_filename="second-user-vector-search.pdf",
+        file_path="/tmp/second-user-vector-search.pdf",
+        content_type="application/pdf",
+        file_size_bytes=500,
+    )
+
+    first_user.documents.append(first_user_document)
+    first_user.documents.append(first_user_second_document)
+    second_user.documents.append(second_user_document)
+    db_session.add(first_user)
+    db_session.add(second_user)
+    db_session.flush()
+
+    repository = ChunkRepository(db_session)
+
+    repository.create_chunks(
+        document_id=first_user_document.id,
+        chunks_data=[
+            {
+                "chunk_index": 0,
+                "content": "First user first document chunk",
+                "embedding": make_embedding(0),
+                "embedding_provider": "test-provider",
+                "embedding_model": "test-model",
+                "embedding_dimensions": 1024,
+            },
+        ],
+    )
+    repository.create_chunks(
+        document_id=first_user_second_document.id,
+        chunks_data=[
+            {
+                "chunk_index": 0,
+                "content": "First user second document chunk",
+                "embedding": make_embedding(1),
+                "embedding_provider": "test-provider",
+                "embedding_model": "test-model",
+                "embedding_dimensions": 1024,
+            },
+        ],
+    )
+    repository.create_chunks(
+        document_id=second_user_document.id,
+        chunks_data=[
+            {
+                "chunk_index": 0,
+                "content": "Second user document chunk",
+                "embedding": make_embedding(0),
+                "embedding_provider": "test-provider",
+                "embedding_model": "test-model",
+                "embedding_dimensions": 1024,
+            },
+        ],
+    )
+
+    results = repository.search_similar_chunks(
+        embedding=make_embedding(0),
+        user_id=first_user.id,
+        top_k=5,
+    )
+
+    result_contents = [chunk.content for chunk, _distance in results]
+
+    assert result_contents == [
+        "First user first document chunk",
+        "First user second document chunk",
+    ]
