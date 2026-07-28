@@ -21,6 +21,7 @@ from app.services.document_processing_service import DocumentProcessingService
 from app.services.extraction.pdf_extraction_service import PdfExtractionService
 from app.services.embedding_service import EmbeddingService
 from app.services.providers.nvidia_embedding_provider import NvidiaEmbeddingProvider
+from app.services.retrieval_service import RetrievalService
 from app.models.user import User
 from app.core.config import settings
 from app.core.security import decode_access_token
@@ -133,4 +134,16 @@ def get_embedding_service() -> EmbeddingService:
 
     raise ValueError(
         f"Unsupported embedding provider: {settings.embedding_provider}"
+    )
+
+
+def get_retrieval_service(
+    db: Annotated[Session, Depends(get_db)],
+) -> RetrievalService:
+    chunk_repository = ChunkRepository(db=db)
+    embedding_service = get_embedding_service()
+
+    return RetrievalService(
+        embedding_service=embedding_service,
+        chunk_repository=chunk_repository,
     )
