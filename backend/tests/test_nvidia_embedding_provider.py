@@ -48,6 +48,7 @@ def test_embed_passages_sends_passage_input_type(monkeypatch) -> None:
         api_key="api-key",
         base_url="https://example.com/v1/",
         model="test-model",
+        dimensions=1024,
     )
 
     result = provider.embed_passages(texts=["first", "second"])
@@ -63,6 +64,7 @@ def test_embed_passages_sends_passage_input_type(monkeypatch) -> None:
         "model": "test-model",
         "input": ["first", "second"],
         "input_type": "passage",
+        "dimensions": 1024,
     }
     assert captured_request["timeout"] == 30.0
 
@@ -95,6 +97,7 @@ def test_embed_query_sends_query_input_type(monkeypatch) -> None:
         api_key="api-key",
         base_url="https://example.com/v1",
         model="test-model",
+        dimensions=1024,
     )
 
     result = provider.embed_query(text="What is this?")
@@ -106,5 +109,6 @@ def test_embed_query_sends_query_input_type(monkeypatch) -> None:
         "model": "test-model",
         "input": ["What is this?"],
         "input_type": "query",
+        "dimensions": 1024,
     }
     assert captured_request["timeout"] == 30.0

@@ -39,9 +39,12 @@ def get_chat_service(
 ) -> ChatService:
     user_repository = UserRepository(db=db)
     chat_repository = ChatRepository(db=db)
+    rag_service = get_rag_service(db=db)
+
     return ChatService(
         chat_repository=chat_repository,
         user_repository=user_repository,
+        rag_service=rag_service,
     )
 
 
@@ -127,6 +130,7 @@ def get_embedding_service() -> EmbeddingService:
             api_key=settings.nvidia_api_key,
             base_url=settings.embedding_base_url,
             model=settings.embedding_model,
+            dimensions=settings.embedding_dimensions,
         )
 
         return EmbeddingService(

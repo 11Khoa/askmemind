@@ -77,3 +77,14 @@ Authorization: Bearer {{accessToken}}
 ###
 GET {{baseUrl}}/documents/{{documentsId}}
 Authorization: Bearer {{accessToken}}
+
+###
+POST {{baseUrl}}/chats/{{chatId}}/questions
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "content": "What is this document about?",
+  "document_id": "{{documentsId}}",
+  "top_k": 3
+}

@@ -30,6 +30,18 @@ class ChatMessageCreate(BaseModel):
     )
 
 
+class ChatQuestionCreate(BaseModel):
+    content: str = Field(
+        min_length=1,
+    )
+    document_id: uuid.UUID | None = None
+    top_k: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+    )
+
+
 class ChatMessageRead(BaseModel):
     id: uuid.UUID
     chat_id: uuid.UUID

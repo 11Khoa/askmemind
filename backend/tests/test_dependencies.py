@@ -5,6 +5,7 @@ import pytest
 
 from app.core import dependencies
 from app.repositories.chunk_repository import ChunkRepository
+from app.services.chat_service import ChatService
 from app.services.embedding_service import EmbeddingService
 from app.services.providers.nvidia_embedding_provider import NvidiaEmbeddingProvider
 from app.services.retrieval_service import RetrievalService
@@ -12,6 +13,24 @@ from app.services.llm_service import LLMService
 from app.services.rag_service import RagService
 from app.services.providers.groq_llm_provider import GroqLLMProvider
 from app.services.context_builder_service import ContextBuilderService
+
+
+def test_get_chat_service_builds_chat_service_with_rag_service(monkeypatch) -> None:
+    db = Mock()
+    rag_service = Mock(spec=RagService)
+
+    monkeypatch.setattr(
+        dependencies,
+        "get_rag_service",
+        lambda db: rag_service,
+    )
+
+    service = dependencies.get_chat_service(db=db)
+
+    assert isinstance(service, ChatService)
+    assert service.chat_repository.db is db
+    assert service.user_repository.db is db
+    assert service.rag_service is rag_service
 
 
 def test_embedding_service_builds_nvidia_embedding_service(monkeypatch) -> None:

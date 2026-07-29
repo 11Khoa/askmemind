@@ -8,6 +8,7 @@ from app.schemas.chat import (
     ChatCreate,
     ChatMessageCreate,
     ChatMessageRead,
+    ChatQuestionCreate,
     ChatRead,
 )
 from app.services.chat_service import ChatService
@@ -87,6 +88,33 @@ def create_user_message(
             user_id=current_user.id,
             chat_id=chat_id,
             content=payload.content,
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(error),
+        ) from error
+    except PermissionError as error:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(error),
+        ) from error
+
+
+@router.post("/{chat_id}/questions", response_model=ChatMessageRead)
+def create_rag_question(
+    chat_id: uuid.UUID,
+    payload: ChatQuestionCreate,
+    current_user: Annotated[User, Depends(get_current_user)],
+    chat_service: Annotated[ChatService, Depends(get_chat_service)],
+):
+    try:
+        return chat_service.create_rag_message(
+            user_id=current_user.id,
+            chat_id=chat_id,
+            content=payload.content,
+            document_id=payload.document_id,
+            top_k=payload.top_k,
         )
     except ValueError as error:
         raise HTTPException(

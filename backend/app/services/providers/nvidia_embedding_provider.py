@@ -9,10 +9,12 @@ class NvidiaEmbeddingProvider:
         api_key: str,
         base_url: str,
         model: str,
+        dimensions: int,
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self.dimensions = dimensions
 
     def embed_passages(
         self,
@@ -49,6 +51,7 @@ class NvidiaEmbeddingProvider:
                 "model": self.model,
                 "input": texts,
                 "input_type": input_type,
+                "dimensions": self.dimensions,
             },
             timeout=30.0,
         )
