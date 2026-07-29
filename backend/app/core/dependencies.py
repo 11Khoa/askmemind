@@ -22,6 +22,10 @@ from app.services.extraction.pdf_extraction_service import PdfExtractionService
 from app.services.embedding_service import EmbeddingService
 from app.services.providers.nvidia_embedding_provider import NvidiaEmbeddingProvider
 from app.services.retrieval_service import RetrievalService
+from app.services.llm_service import LLMService
+from app.services.providers.groq_llm_provider import GroqLLMProvider
+from app.services.context_builder_service import ContextBuilderService
+from app.services.rag_service import RagService
 from app.models.user import User
 from app.core.config import settings
 from app.core.security import decode_access_token
@@ -146,4 +150,39 @@ def get_retrieval_service(
     return RetrievalService(
         embedding_service=embedding_service,
         chunk_repository=chunk_repository,
+    )
+
+
+def get_llm_service() -> LLMService:
+    if settings.llm_provider == "groq":
+        if not settings.groq_api_key:
+            raise ValueError(
+                "GROQ_API_KEY is required for Groq LLMs"
+            )
+        provider = GroqLLMProvider(
+            api_key=settings.groq_api_key,
+            base_url=settings.llm_base_url,
+            model=settings.llm_model,
+            max_tokens=settings.llm_max_tokens,
+        )
+        return LLMService(
+            provider=provider,
+        )
+
+    raise ValueError(
+        f"Unsupported LLM provider: {settings.llm_provider}"
+    )
+
+
+def get_rag_service(
+    db: Annotated[Session, Depends(get_db)],
+) -> RagService:
+    retrieval_service = get_retrieval_service(db=db)
+    context_builder_service = ContextBuilderService()
+    llm_service = get_llm_service()
+
+    return RagService(
+        retrieval_service=retrieval_service,
+        context_builder_service=context_builder_service,
+        llm_service=llm_service,
     )

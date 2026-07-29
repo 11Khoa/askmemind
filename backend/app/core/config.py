@@ -19,8 +19,11 @@ class Settings(BaseSettings):
     embedding_dimensions: int = 1024
     nvidia_api_key: str = ""
 
-    llm_provider: str = "openai"
-    llm_model: str = ""
+    groq_api_key: str = ""
+    llm_provider: str = "groq"
+    llm_model: str = "openai/gpt-oss-120b"
+    llm_base_url: str = "https://api.groq.com/openai/v1"
+    llm_max_tokens: int = 500
 
     upload_dir: str = "storage/uploads"
     temp_dir: str = "storage/temp"
