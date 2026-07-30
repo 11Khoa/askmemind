@@ -1,14 +1,16 @@
-# POST /auth/register
-# POST /chats?user_id=<USER_ID>
-# GET /chats?user_id=<USER_ID>
-# POST /chats/{chat_id}/messages?user_id=<USER_ID>
-# GET /chats/{chat_id}/messages?user_id=<USER_ID>
+# Local smoke flow:
+# 1. Register/login
+# 2. Copy access_token into @accessToken
+# 3. Create chat and copy id into @chatId
+# 4. Upload PDF and copy id into @documentId
+# 5. Ask RAG question
+# 6. Verify chat messages include user + assistant messages
 
 @baseUrl = http://127.0.0.1:8000
-@userId = replace-with-user-id
 @chatId = replace-with-chat-id
 @accessToken = replace-with-access-token
-@documentsId= replace-with-document-id
+@documentId = replace-with-document-id
+@question = What is this document about?
 
 ###
 POST {{baseUrl}}/auth/register
@@ -45,11 +47,11 @@ Content-Type: application/json
   "title": "Local Smoke Chat"
 }
 
-###
+### List messages before RAG question
 GET {{baseUrl}}/chats/{{chatId}}/messages
 Authorization: Bearer {{accessToken}}
 
-###
+### Optional: create a plain user message without RAG
 POST {{baseUrl}}/chats/{{chatId}}/messages
 Authorization: Bearer {{accessToken}}
 Content-Type: application/json
@@ -75,7 +77,7 @@ GET {{baseUrl}}/documents
 Authorization: Bearer {{accessToken}}
 
 ###
-GET {{baseUrl}}/documents/{{documentsId}}
+GET {{baseUrl}}/documents/{{documentId}}
 Authorization: Bearer {{accessToken}}
 
 ###
@@ -84,7 +86,11 @@ Authorization: Bearer {{accessToken}}
 Content-Type: application/json
 
 {
-  "content": "What is this document about?",
-  "document_id": "{{documentsId}}",
+  "content": "{{question}}",
+  "document_id": "{{documentId}}",
   "top_k": 3
 }
+
+### Verify persisted RAG messages
+GET {{baseUrl}}/chats/{{chatId}}/messages
+Authorization: Bearer {{accessToken}}
