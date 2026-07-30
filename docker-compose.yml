@@ -3,21 +3,28 @@ services:
     image: pgvector/pgvector:pg16
     container_name: askmemind-postgres
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: askmemind
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
 
-  adminer:
-    image: adminer
-    container_name: askmemind_adminer
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: askmemind-backend
+    env_file:
+      - .env
     ports:
-      - "8080:8080"
+      - "8000:8000"
+    volumes:
+      - ./storage/uploads:/app/storage/uploads
+      - ./storage/temp:/app/storage/temp
     depends_on:
       - postgres
+    restart: unless-stopped
 
 volumes:
   postgres_data:

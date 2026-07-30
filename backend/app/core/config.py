@@ -7,6 +7,7 @@ BASE_DIR = Path(__file__).resolve().parents[3]
 
 
 class Settings(BaseSettings):
+    backend_cors_origins: str = ""
     database_url: str
     secret_key: str
     jwt_algorithm: str = "HS256"
