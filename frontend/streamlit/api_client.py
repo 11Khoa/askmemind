@@ -80,7 +80,7 @@ class ApiClient:
         response = requests.post(
             self._build_url("/auth/register"),
             json={
-                "email": email,
+                "email": email.lower(),
                 "password": password,
             },
             timeout=30,
@@ -96,7 +96,7 @@ class ApiClient:
         response = requests.post(
             self._build_url("/auth/login"),
             json={
-                "email": email,
+                "email": email.lower(),
                 "password": password,
             },
             timeout=30,
