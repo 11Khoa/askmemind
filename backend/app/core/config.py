@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     secret_key: str
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
+    enable_registration: bool = True
 
     embedding_provider: str = "nvidia"
     embedding_model: str = "nvidia/llama-nemotron-embed-1b-v2"

@@ -2,6 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from app.core.config import settings
 from app.core.dependencies import get_auth_service, get_current_user
 from app.schemas.user import UserCreate, UserRead, UserLogin, TokenResponse
 from app.services.auth_service import AuthService
@@ -18,6 +19,12 @@ def register_user(
     payload: UserCreate,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ):
+    if settings.enable_registration is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Registration is currently disabled.",
+        )
+
     try:
         return auth_service.register_user(
             email=payload.email,
