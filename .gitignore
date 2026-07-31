@@ -56,8 +56,7 @@ docker-compose.override.yml
 
 # Frontend / Streamlit
 .streamlit/secrets.toml
-frontend/.streamlit/secrets.toml
-.streamlit
+frontend/streamlit/.streamlit/secrets.toml
 
 # Build artifacts
 dist/
