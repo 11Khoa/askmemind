@@ -2,8 +2,13 @@ import streamlit as st
 
 from api_client import ApiClient, ApiError
 
+def get_default_api_base_url() -> str:
+    return st.secrets.get(
+        "ASKMEMIND_API_BASE_URL",
+        "http://127.0.0.1:8000",
+    )
 
-DEFAULT_API_BASE_URL = "http://127.0.0.1:8000"
+DEFAULT_API_BASE_URL = get_default_api_base_url()
 
 
 def init_session_state() -> None:
@@ -50,13 +55,9 @@ def logout() -> None:
 
 def render_sidebar() -> None:
     with st.sidebar:
-        st.subheader("AskMeMind")
+        # st.subheader("AskMeMind")
 
-        api_base_url = st.text_input(
-            "API base URL",
-            value=st.session_state["api_base_url"],
-            help="FastAPI backend URL.",
-        )
+        api_base_url = st.session_state["api_base_url"]
         st.session_state["api_base_url"] = api_base_url.rstrip("/")
 
         if is_authenticated():
