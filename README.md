@@ -1,5 +1,7 @@
 # AskMeMind
 
+<img width="1865" height="1393" alt="image" src="https://github.com/user-attachments/assets/944de9b4-21d9-4614-b2de-849ba255eb7b" />
+<br>
 AskMeMind is a PDF question-answering platform built around Retrieval-Augmented Generation (RAG). Users can upload PDFs, extract searchable text, generate embeddings, retrieve relevant document chunks, and ask questions with citation-aware answers.
 
 ## Highlights
