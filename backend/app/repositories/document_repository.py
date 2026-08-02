@@ -86,3 +86,18 @@ class DocumentRepository:
         self.db.flush()
 
         return document
+
+    def get_user_document_by_original_filename(
+        self,
+        user_id: uuid.UUID,
+        original_filename: str,
+    ) -> Document | None:
+        return (
+            self.db.query(Document)
+            .filter(
+                Document.user_id == user_id,
+                Document.original_filename == original_filename,
+            )
+            .order_by(Document.created_at.desc())
+            .first()
+        )

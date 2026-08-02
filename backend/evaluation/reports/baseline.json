@@ -1,0 +1,353 @@
+{
+  "dataset": "evaluation/datasets/rag_eval.json",
+  "top_k": 3,
+  "total": 18,
+  "hit_count": 15,
+  "hit_rate": 0.8333333333333334,
+  "mrr": 0.6018518518518519,
+  "results": [
+    {
+      "test_id": "chainlink_en_001",
+      "question_language": "en",
+      "hit": true,
+      "expected_pages": [
+        2,
+        6
+      ],
+      "retrieved_pages": [
+        1,
+        6,
+        2
+      ],
+      "matched_pages": [
+        6,
+        2
+      ],
+      "best_rank": 2,
+      "mrr": 0.5
+    },
+    {
+      "test_id": "chainlink_en_002",
+      "question_language": "en",
+      "hit": true,
+      "expected_pages": [
+        7,
+        8
+      ],
+      "retrieved_pages": [
+        6,
+        19,
+        7
+      ],
+      "matched_pages": [
+        7
+      ],
+      "best_rank": 3,
+      "mrr": 0.3333333333333333
+    },
+    {
+      "test_id": "chainlink_en_003",
+      "question_language": "en",
+      "hit": true,
+      "expected_pages": [
+        9,
+        10
+      ],
+      "retrieved_pages": [
+        9,
+        9,
+        9
+      ],
+      "matched_pages": [
+        9,
+        9,
+        9
+      ],
+      "best_rank": 1,
+      "mrr": 1.0
+    },
+    {
+      "test_id": "chainlink_en_004",
+      "question_language": "en",
+      "hit": true,
+      "expected_pages": [
+        24,
+        25
+      ],
+      "retrieved_pages": [
+        24,
+        25,
+        7
+      ],
+      "matched_pages": [
+        24,
+        25
+      ],
+      "best_rank": 1,
+      "mrr": 1.0
+    },
+    {
+      "test_id": "chainlink_en_005",
+      "question_language": "en",
+      "hit": true,
+      "expected_pages": [
+        35
+      ],
+      "retrieved_pages": [
+        35,
+        35,
+        34
+      ],
+      "matched_pages": [
+        35,
+        35
+      ],
+      "best_rank": 1,
+      "mrr": 1.0
+    },
+    {
+      "test_id": "chainlink_en_006",
+      "question_language": "en",
+      "hit": true,
+      "expected_pages": [
+        43,
+        45
+      ],
+      "retrieved_pages": [
+        15,
+        45,
+        3
+      ],
+      "matched_pages": [
+        45
+      ],
+      "best_rank": 2,
+      "mrr": 0.5
+    },
+    {
+      "test_id": "chainlink_en_007",
+      "question_language": "en",
+      "hit": false,
+      "expected_pages": [
+        57,
+        58
+      ],
+      "retrieved_pages": [
+        27,
+        4,
+        11
+      ],
+      "matched_pages": [],
+      "best_rank": null,
+      "mrr": 0.0
+    },
+    {
+      "test_id": "chainlink_en_008",
+      "question_language": "en",
+      "hit": true,
+      "expected_pages": [
+        65,
+        70
+      ],
+      "retrieved_pages": [
+        65,
+        17,
+        102
+      ],
+      "matched_pages": [
+        65
+      ],
+      "best_rank": 1,
+      "mrr": 1.0
+    },
+    {
+      "test_id": "chainlink_en_009",
+      "question_language": "en",
+      "hit": true,
+      "expected_pages": [
+        80,
+        81
+      ],
+      "retrieved_pages": [
+        17,
+        17,
+        80
+      ],
+      "matched_pages": [
+        80
+      ],
+      "best_rank": 3,
+      "mrr": 0.3333333333333333
+    },
+    {
+      "test_id": "chainlink_vi_001",
+      "question_language": "vi",
+      "hit": true,
+      "expected_pages": [
+        2,
+        6
+      ],
+      "retrieved_pages": [
+        1,
+        6,
+        6
+      ],
+      "matched_pages": [
+        6,
+        6
+      ],
+      "best_rank": 2,
+      "mrr": 0.5
+    },
+    {
+      "test_id": "chainlink_vi_002",
+      "question_language": "vi",
+      "hit": true,
+      "expected_pages": [
+        7,
+        8
+      ],
+      "retrieved_pages": [
+        6,
+        19,
+        7
+      ],
+      "matched_pages": [
+        7
+      ],
+      "best_rank": 3,
+      "mrr": 0.3333333333333333
+    },
+    {
+      "test_id": "chainlink_vi_003",
+      "question_language": "vi",
+      "hit": true,
+      "expected_pages": [
+        9,
+        10
+      ],
+      "retrieved_pages": [
+        9,
+        9,
+        42
+      ],
+      "matched_pages": [
+        9,
+        9
+      ],
+      "best_rank": 1,
+      "mrr": 1.0
+    },
+    {
+      "test_id": "chainlink_vi_004",
+      "question_language": "vi",
+      "hit": true,
+      "expected_pages": [
+        24,
+        25
+      ],
+      "retrieved_pages": [
+        24,
+        25,
+        7
+      ],
+      "matched_pages": [
+        24,
+        25
+      ],
+      "best_rank": 1,
+      "mrr": 1.0
+    },
+    {
+      "test_id": "chainlink_vi_005",
+      "question_language": "vi",
+      "hit": true,
+      "expected_pages": [
+        35
+      ],
+      "retrieved_pages": [
+        35,
+        35,
+        37
+      ],
+      "matched_pages": [
+        35,
+        35
+      ],
+      "best_rank": 1,
+      "mrr": 1.0
+    },
+    {
+      "test_id": "chainlink_vi_006",
+      "question_language": "vi",
+      "hit": false,
+      "expected_pages": [
+        43,
+        45
+      ],
+      "retrieved_pages": [
+        3,
+        52,
+        15
+      ],
+      "matched_pages": [],
+      "best_rank": null,
+      "mrr": 0.0
+    },
+    {
+      "test_id": "chainlink_vi_007",
+      "question_language": "vi",
+      "hit": false,
+      "expected_pages": [
+        57,
+        58
+      ],
+      "retrieved_pages": [
+        27,
+        4,
+        11
+      ],
+      "matched_pages": [],
+      "best_rank": null,
+      "mrr": 0.0
+    },
+    {
+      "test_id": "chainlink_vi_008",
+      "question_language": "vi",
+      "hit": true,
+      "expected_pages": [
+        65,
+        70
+      ],
+      "retrieved_pages": [
+        65,
+        17,
+        2
+      ],
+      "matched_pages": [
+        65
+      ],
+      "best_rank": 1,
+      "mrr": 1.0
+    },
+    {
+      "test_id": "chainlink_vi_009",
+      "question_language": "vi",
+      "hit": true,
+      "expected_pages": [
+        80,
+        81
+      ],
+      "retrieved_pages": [
+        17,
+        17,
+        80
+      ],
+      "matched_pages": [
+        80
+      ],
+      "best_rank": 3,
+      "mrr": 0.3333333333333333
+    }
+  ]
+}
