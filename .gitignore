@@ -71,5 +71,4 @@ yarn-error.log*
 pnpm-debug.log*
 
 # Markdown
-*.md
 !README.md
