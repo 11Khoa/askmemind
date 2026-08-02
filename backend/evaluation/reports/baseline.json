@@ -1,10 +1,10 @@
 {
   "dataset": "evaluation/datasets/rag_eval.json",
-  "top_k": 3,
+  "top_k": 5,
   "total": 18,
-  "hit_count": 15,
-  "hit_rate": 0.8333333333333334,
-  "mrr": 0.6018518518518519,
+  "hit_count": 18,
+  "hit_rate": 1.0,
+  "mrr": 0.6407407407407407,
   "results": [
     {
       "test_id": "chainlink_en_001",
@@ -17,11 +17,15 @@
       "retrieved_pages": [
         1,
         6,
-        2
+        2,
+        6,
+        6
       ],
       "matched_pages": [
         6,
-        2
+        2,
+        6,
+        6
       ],
       "best_rank": 2,
       "mrr": 0.5
@@ -37,7 +41,9 @@
       "retrieved_pages": [
         6,
         19,
-        7
+        7,
+        2,
+        19
       ],
       "matched_pages": [
         7
@@ -56,7 +62,9 @@
       "retrieved_pages": [
         9,
         9,
-        9
+        9,
+        11,
+        11
       ],
       "matched_pages": [
         9,
@@ -77,11 +85,14 @@
       "retrieved_pages": [
         24,
         25,
-        7
+        7,
+        7,
+        24
       ],
       "matched_pages": [
         24,
-        25
+        25,
+        24
       ],
       "best_rank": 1,
       "mrr": 1.0
@@ -96,9 +107,13 @@
       "retrieved_pages": [
         35,
         35,
-        34
+        34,
+        35,
+        35
       ],
       "matched_pages": [
+        35,
+        35,
         35,
         35
       ],
@@ -116,10 +131,13 @@
       "retrieved_pages": [
         15,
         45,
-        3
+        3,
+        43,
+        52
       ],
       "matched_pages": [
-        45
+        45,
+        43
       ],
       "best_rank": 2,
       "mrr": 0.5
@@ -127,7 +145,7 @@
     {
       "test_id": "chainlink_en_007",
       "question_language": "en",
-      "hit": false,
+      "hit": true,
       "expected_pages": [
         57,
         58
@@ -135,11 +153,15 @@
       "retrieved_pages": [
         27,
         4,
-        11
+        11,
+        57,
+        28
       ],
-      "matched_pages": [],
-      "best_rank": null,
-      "mrr": 0.0
+      "matched_pages": [
+        57
+      ],
+      "best_rank": 4,
+      "mrr": 0.25
     },
     {
       "test_id": "chainlink_en_008",
@@ -152,9 +174,12 @@
       "retrieved_pages": [
         65,
         17,
-        102
+        102,
+        2,
+        65
       ],
       "matched_pages": [
+        65,
         65
       ],
       "best_rank": 1,
@@ -171,9 +196,12 @@
       "retrieved_pages": [
         17,
         17,
-        80
+        80,
+        80,
+        1
       ],
       "matched_pages": [
+        80,
         80
       ],
       "best_rank": 3,
@@ -190,11 +218,15 @@
       "retrieved_pages": [
         1,
         6,
-        6
+        6,
+        6,
+        2
       ],
       "matched_pages": [
         6,
-        6
+        6,
+        6,
+        2
       ],
       "best_rank": 2,
       "mrr": 0.5
@@ -210,10 +242,13 @@
       "retrieved_pages": [
         6,
         19,
-        7
+        7,
+        2,
+        8
       ],
       "matched_pages": [
-        7
+        7,
+        8
       ],
       "best_rank": 3,
       "mrr": 0.3333333333333333
@@ -229,7 +264,9 @@
       "retrieved_pages": [
         9,
         9,
-        42
+        42,
+        58,
+        11
       ],
       "matched_pages": [
         9,
@@ -249,11 +286,14 @@
       "retrieved_pages": [
         24,
         25,
-        7
+        7,
+        7,
+        24
       ],
       "matched_pages": [
         24,
-        25
+        25,
+        24
       ],
       "best_rank": 1,
       "mrr": 1.0
@@ -268,9 +308,12 @@
       "retrieved_pages": [
         35,
         35,
-        37
+        37,
+        34,
+        35
       ],
       "matched_pages": [
+        35,
         35,
         35
       ],
@@ -280,7 +323,7 @@
     {
       "test_id": "chainlink_vi_006",
       "question_language": "vi",
-      "hit": false,
+      "hit": true,
       "expected_pages": [
         43,
         45
@@ -288,16 +331,21 @@
       "retrieved_pages": [
         3,
         52,
-        15
+        15,
+        43,
+        45
       ],
-      "matched_pages": [],
-      "best_rank": null,
-      "mrr": 0.0
+      "matched_pages": [
+        43,
+        45
+      ],
+      "best_rank": 4,
+      "mrr": 0.25
     },
     {
       "test_id": "chainlink_vi_007",
       "question_language": "vi",
-      "hit": false,
+      "hit": true,
       "expected_pages": [
         57,
         58
@@ -305,11 +353,15 @@
       "retrieved_pages": [
         27,
         4,
-        11
+        11,
+        28,
+        57
       ],
-      "matched_pages": [],
-      "best_rank": null,
-      "mrr": 0.0
+      "matched_pages": [
+        57
+      ],
+      "best_rank": 5,
+      "mrr": 0.2
     },
     {
       "test_id": "chainlink_vi_008",
@@ -322,9 +374,12 @@
       "retrieved_pages": [
         65,
         17,
-        2
+        2,
+        102,
+        65
       ],
       "matched_pages": [
+        65,
         65
       ],
       "best_rank": 1,
@@ -341,9 +396,12 @@
       "retrieved_pages": [
         17,
         17,
-        80
+        80,
+        80,
+        1
       ],
       "matched_pages": [
+        80,
         80
       ],
       "best_rank": 3,

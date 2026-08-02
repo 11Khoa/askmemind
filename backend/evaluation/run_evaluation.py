@@ -13,7 +13,7 @@ from evaluation.evaluators.retrieval_evaluator import (
 
 DATASET_PATH = Path("evaluation/datasets/rag_eval.json")
 REPORT_PATH = Path("evaluation/reports/baseline.json")
-BENCHMARK_PATH=Path("evaluation/reports/benchmark.md")
+BENCHMARK_PATH = Path("evaluation/reports/benchmark.md")
 TOP_K = 5
 
 
@@ -175,11 +175,20 @@ def write_markdown_report(
         f"- Hit Rate: `{hit_rate:.2%}`",
         f"- MRR: `{mean_mrr:.2f}`",
         "",
-        "## Results",
-        "",
-        "| Test ID | Language | Status | Expected Pages | Retrieved Pages | Matched Pages | Best Rank | MRR |",
-        "|---|---|---|---|---|---|---:|---:|",
     ]
+
+    lines.extend(
+        build_language_summary_lines(results=results)
+    )
+
+    lines.extend(
+        [
+            "## Results",
+            "",
+            "| Test ID | Language | Status | Expected Pages | Retrieved Pages | Matched Pages | Best Rank | MRR |",
+            "|---|---|---|---|---|---|---:|---:|",
+        ]
+    )
 
     for result in results:
         status = "PASS" if result.hit else "FAIL"
@@ -216,6 +225,40 @@ def format_optional_rank(rank: int | None) -> str:
         return "-"
 
     return str(rank)
+
+
+def build_language_summary_lines(
+    results: list[RetrievalEvaluationResult],
+) -> list[str]:
+    grouped_results: dict[str, list[RetrievalEvaluationResult]] = {}
+
+    for result in results:
+        grouped_results.setdefault(result.question_language, []).append(result)
+
+    lines = [
+        "## By Question Language",
+        "",
+        "| Language | Total | Hit Rate | MRR |",
+        "|---|---:|---:|---:|",
+    ]
+
+    for language, language_results in sorted(grouped_results.items()):
+        total = len(language_results)
+        hit_count = sum(1 for result in language_results if result.hit)
+        hit_rate = 0.0 if total == 0 else hit_count / total
+        mean_mrr = (
+            0.0
+            if total == 0
+            else sum(result.mrr for result in language_results) / total
+        )
+
+        lines.append(
+            f"| {language} | {total} | {hit_rate:.2%} | {mean_mrr:.2f} |"
+        )
+
+    lines.append("")
+
+    return lines
 
 
 if __name__ == "__main__":
