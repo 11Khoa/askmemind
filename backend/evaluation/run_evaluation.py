@@ -6,9 +6,15 @@ from typing import Any
 from app.core.dependencies import get_retrieval_service
 from app.database import SessionLocal
 from app.repositories.document_repository import DocumentRepository
+from app.services.context_builder_service import ContextBuilderService
 from evaluation.evaluators.retrieval_evaluator import (
     RetrievalEvaluator,
     RetrievalEvaluationResult,
+)
+from evaluation.evaluators.citation_evaluator import (
+    CitationEvaluator,
+    CitationEvaluationResult,
+    CitationIntegrityEvaluationResult,
 )
 
 DATASET_PATH = Path("evaluation/datasets/rag_eval.json")
@@ -25,9 +31,14 @@ def main() -> None:
     try:
         document_repository = DocumentRepository(db=db)
         retrieval_service = get_retrieval_service(db=db)
-        evaluation = RetrievalEvaluator()
+        retrieval_evaluator = RetrievalEvaluator()
+        context_builder_service = ContextBuilderService()
+        citation_evaluator = CitationEvaluator()
 
         results: list[RetrievalEvaluationResult] = []
+        citation_results: list[CitationEvaluationResult] = []
+        citation_integrity_results: list[CitationIntegrityEvaluationResult] = []
+
         for test_case in dataset:
             user_id = uuid.UUID(test_case["user_id"])
 
@@ -51,17 +62,43 @@ def main() -> None:
                 top_k=TOP_K,
             )
 
-            result = evaluation.evaluate(
+            build_context = context_builder_service.build_context(
+                retrieved_chunks=retrieval_chunks,
+            )
+
+            result = retrieval_evaluator.evaluate(
                 test_id=test_case["id"],
                 question_language=test_case["question_language"],
                 expected_pages=test_case["expected_pages"],
                 retrieved_chunks=retrieval_chunks,
             )
 
+            citation_result = citation_evaluator.evaluate(
+                test_id=test_case["id"],
+                question_language=test_case["question_language"],
+                expected_pages=test_case["expected_pages"],
+                citations=build_context.citations,
+            )
+
+            citation_integrity_result = citation_evaluator.evaluate_integrity(
+                test_id=test_case["id"],
+                question_language=test_case["question_language"],
+                retrieved_chunks=retrieval_chunks,
+                citations=build_context.citations,
+            )
+
             results.append(result)
             print_result(result=result)
 
+            citation_results.append(citation_result)
+            print_citation_result(result=citation_result)
+
+            citation_integrity_results.append(citation_integrity_result)
+            print_citation_integrity_result(result=citation_integrity_result)
+
         print_summary(results=results)
+        print_citation_summary(results=citation_results)
+        print_citation_integrity_summary(results=citation_integrity_results)
         write_json_report(
             path=REPORT_PATH,
             dataset_path=DATASET_PATH,
@@ -72,7 +109,9 @@ def main() -> None:
             path=BENCHMARK_PATH,
             dataset_path=DATASET_PATH,
             top_k=TOP_K,
-            results=results,
+            retrieval_results=results,
+            citation_results=citation_results,
+            citation_integrity_results=citation_integrity_results,
         )
     finally:
         db.close()
@@ -95,18 +134,66 @@ def print_result(result: RetrievalEvaluationResult) -> None:
     )
 
 
+def print_citation_result(result: CitationEvaluationResult) -> None:
+    status = "PASS" if result.hit else "FAIL"
+
+    print(
+        f"[CITATION {status}] {result.test_id} "
+        f"expected={result.expected_pages} "
+        f"cited={result.cited_pages} "
+        f"best_rank={result.best_rank} "
+        f"mrr={result.mrr:.2f}"
+    )
+
+
+def print_citation_integrity_result(
+    result: CitationIntegrityEvaluationResult,
+) -> None:
+    status = "PASS" if result.passed else "FAIL"
+
+    print(
+        f"[CITATION INTEGRITY {status}] {result.test_id} "
+        f"retrieved_chunks={result.retrieved_chunk_count} "
+        f"citations={result.citation_count} "
+        f"errors={len(result.errors)}"
+    )
+
+    for error in result.errors:
+        print(f" - {error}")
+
+
+def calculate_summary(
+    results: list[RetrievalEvaluationResult] | list[CitationEvaluationResult],
+) -> tuple[int, int, float, float]:
+    total = len(results)
+    hit_count = sum(1 for result in results if result.hit)
+    hit_rate = 0.0 if total == 0 else hit_count / total
+    mean_mrr = 0.0 if total == 0 else sum(
+        result.mrr for result in results) / total
+
+    return total, hit_count, hit_rate, mean_mrr
+
+
 def print_summary(results: list[RetrievalEvaluationResult]) -> None:
     if not results:
         print("No evaluation results.")
         return
 
-    hit_count = sum(1 for result in results if result.hit)
-    hit_rate = hit_count / len(results)
-    mean_mrr = sum(result.mrr for result in results) / len(results)
+    total, _, hit_rate, mean_mrr = calculate_summary(results=results)
 
     print()
     print("Retrieval Summary")
-    print(f"Total: {len(results)}")
+    print(f"Total: {total}")
+    print(f"Hit rate: {hit_rate:.2%}")
+    print(f"MRR: {mean_mrr:.2f}")
+
+
+def print_citation_summary(results: list[CitationEvaluationResult]) -> None:
+    total, _, hit_rate, mean_mrr = calculate_summary(results=results)
+
+    print()
+    print("Citation Summary")
+    print(f"Total: {total}")
     print(f"Hit rate: {hit_rate:.2%}")
     print(f"MRR: {mean_mrr:.2f}")
 
@@ -152,47 +239,84 @@ def write_json_report(
     print(f"Wrote JSON report to {path}")
 
 
+def print_citation_integrity_summary(
+    results: list[CitationIntegrityEvaluationResult],
+) -> None:
+    if not results:
+        print("No citation integrity results.")
+        return
+
+    total, _, pass_rate = calculate_integrity_summary(results=results)
+
+    print()
+    print("Citation Integrity Summary")
+    print(f"Total: {total}")
+    print(f"Pass rate: {pass_rate:.2%}")
+
+
 def write_markdown_report(
     path: Path,
     dataset_path: Path,
     top_k: int,
-    results: list[RetrievalEvaluationResult],
+    retrieval_results: list[RetrievalEvaluationResult],
+    citation_results: list[CitationEvaluationResult],
+    citation_integrity_results: list[CitationIntegrityEvaluationResult],
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    total = len(results)
-    hit_count = sum(1 for result in results if result.hit)
-    hit_rate = 0.0 if total == 0 else hit_count / total
-    mean_mrr = 0.0 if total == 0 else sum(
-        result.mrr for result in results) / total
+    retrieval_total, _, retrieval_hit_rate, retrieval_mrr = (
+        calculate_summary(results=retrieval_results)
+    )
+
+    citation_total, _, citation_hit_rate, citation_mrr = (
+        calculate_summary(results=citation_results)
+    )
+
+    integrity_total, _, integrity_pass_rate = (
+        calculate_integrity_summary(results=citation_integrity_results)
+    )
 
     lines = [
-        "# RAG Retrieval Benchmark",
+        "# RAG Benchmark",
         "",
         f"- Dataset: `{dataset_path}`",
         f"- Top K: `{top_k}`",
-        f"- Total: `{total}`",
-        f"- Hit Rate: `{hit_rate:.2%}`",
-        f"- MRR: `{mean_mrr:.2f}`",
+        "",
+        "## Summary",
+        "",
+        "| Metric | Total | Pass/Hit Rate | MRR |",
+        "|---|---:|---:|---:|",
+        f"| Retrieval | {retrieval_total} | {retrieval_hit_rate:.2%} | {retrieval_mrr:.2f} |",
+        f"| Citation Relevance | {citation_total} | {citation_hit_rate:.2%} | {citation_mrr:.2f} |",
+        f"| Citation Integrity | {integrity_total} | {integrity_pass_rate:.2%} | - |",
         "",
     ]
 
     lines.extend(
-        build_language_summary_lines(results=results)
+        build_language_summary_lines(
+            title="Retrieval By Question Language",
+            results=retrieval_results,
+        )
+    )
+
+    lines.extend(
+        build_language_summary_lines(
+            title="Citation By Question Language",
+            results=citation_results,
+        )
     )
 
     lines.extend(
         [
-            "## Results",
+            "## Retrieval Results",
             "",
             "| Test ID | Language | Status | Expected Pages | Retrieved Pages | Matched Pages | Best Rank | MRR |",
             "|---|---|---|---|---|---|---:|---:|",
         ]
     )
 
-    for result in results:
+    for result in retrieval_results:
         status = "PASS" if result.hit else "FAIL"
-
         lines.append(
             "| "
             f"{result.test_id} | "
@@ -207,10 +331,69 @@ def write_markdown_report(
 
     lines.append("")
 
+    lines.extend(
+        [
+            "## Citation Results",
+            "",
+            "| Test ID | Language | Status | Expected Pages | Cited Pages | Matched Pages | Best Rank | MRR |",
+            "|---|---|---|---|---|---|---:|---:|",
+        ]
+    )
+    for result in citation_results:
+        status = "PASS" if result.hit else "FAIL"
+        lines.append(
+            "| "
+            f"{result.test_id} | "
+            f"{result.question_language} | "
+            f"{status} | "
+            f"{format_pages(result.expected_pages)} | "
+            f"{format_pages(result.cited_pages)} | "
+            f"{format_pages(result.matched_pages)} | "
+            f"{format_optional_rank(result.best_rank)} | "
+            f"{result.mrr:.2f} |"
+        )
+
+    lines.append("")
+
+    lines.extend(
+        [
+            "## Citation Integrity Results",
+            "",
+            "| Test ID | Language | Status | Retrieved Chunks | Citations | Errors |",
+            "|---|---|---|---:|---:|---|",
+        ]
+    )
+
+    for result in citation_integrity_results:
+        status = "PASS" if result.passed else "FAIL"
+        errors = format_errors(result.errors)
+
+        lines.append(
+            "| "
+            f"{result.test_id} | "
+            f"{result.question_language} | "
+            f"{status} | "
+            f"{result.retrieved_chunk_count} | "
+            f"{result.citation_count} | "
+            f"{errors} |"
+        )
+
+    lines.append("")
+
     with path.open("w", encoding="utf-8") as file:
         file.write("\n".join(lines))
 
     print(f"Wrote Markdown report to {path}")
+
+
+def calculate_integrity_summary(
+    results: list[CitationIntegrityEvaluationResult],
+) -> tuple[int, int, float]:
+    total = len(results)
+    pass_count = sum(1 for result in results if result.passed)
+    pass_rate = 0.0 if total == 0 else pass_count / total
+
+    return total, pass_count, pass_rate
 
 
 def format_pages(pages: list[int | None]) -> str:
@@ -227,16 +410,24 @@ def format_optional_rank(rank: int | None) -> str:
     return str(rank)
 
 
+def format_errors(errors: list[str]) -> str:
+    if not errors:
+        return "-"
+
+    return "<br>".join(errors)
+
+
 def build_language_summary_lines(
-    results: list[RetrievalEvaluationResult],
+    title: str,
+    results: list[RetrievalEvaluationResult] | list[CitationEvaluationResult],
 ) -> list[str]:
-    grouped_results: dict[str, list[RetrievalEvaluationResult]] = {}
+    grouped_results: dict[str, list[RetrievalEvaluationResult] | list[CitationEvaluationResult]] = {}
 
     for result in results:
         grouped_results.setdefault(result.question_language, []).append(result)
 
     lines = [
-        "## By Question Language",
+        f"## {title}",
         "",
         "| Language | Total | Hit Rate | MRR |",
         "|---|---:|---:|---:|",

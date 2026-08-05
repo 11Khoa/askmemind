@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+from evaluation.evaluators.metrics import calculate_mrr, find_best_rank
 from app.services.retrieval_service import RetrievedChunk
 
 
@@ -34,10 +35,11 @@ class RetrievalEvaluator:
             if page in expected_pages
         ]
 
-        best_rank = self._find_best_rank(
+        best_rank = find_best_rank(
             expected_pages=expected_pages,
-            retrieved_pages=retrieved_pages,
+            actual_pages=retrieved_pages,
         )
+        mrr = calculate_mrr(best_rank=best_rank)
 
         return RetrievalEvaluationResult(
             test_id=test_id,
@@ -47,16 +49,5 @@ class RetrievalEvaluator:
             retrieved_pages=retrieved_pages,
             matched_pages=matched_pages,
             best_rank=best_rank,
-            mrr=0.0 if best_rank is None else 1 / best_rank,
+            mrr=mrr,
         )
-
-    def _find_best_rank(
-        self,
-        expected_pages: list[int],
-        retrieved_pages: list[int | None],
-    ) -> int | None:
-        for index, page in enumerate(retrieved_pages, start=1):
-            if page in expected_pages:
-                return index
-
-        return None
