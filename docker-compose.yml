@@ -20,8 +20,8 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./storage/uploads:/app/storage/uploads
-      - ./storage/temp:/app/storage/temp
+      - ./storage/uploads:/storage/uploads
+      - ./storage/temp:/storage/temp
     depends_on:
       - postgres
     restart: unless-stopped
