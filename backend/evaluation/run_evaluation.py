@@ -7,6 +7,7 @@ from app.core.dependencies import get_llm_service, get_retrieval_service
 from app.database import SessionLocal
 from app.repositories.document_repository import DocumentRepository
 from app.services.context_builder_service import ContextBuilderService
+from app.services.retrieval_service import RetrievalService, RetrievedChunk
 from evaluation.evaluators.retrieval_evaluator import (
     RetrievalEvaluator,
     RetrievalEvaluationResult,
@@ -22,17 +23,52 @@ from evaluation.evaluators.answer_evaluator import (
 )
 
 DATASET_PATH = Path("evaluation/datasets/rag_eval.json")
-REPORT_PATH = Path("evaluation/reports/baseline.json")
-BENCHMARK_PATH = Path("evaluation/reports/benchmark.md")
+REPORTS_DIR = Path("evaluation/reports")
+BENCHMARK_PATH = REPORTS_DIR / "benchmark.md"
 TOP_K = 5
 RUN_ANSWER_EVALUATION = False
+RETRIEVAL_METHODS = ("vector", "fts_search", "hybrid")
+
+
+def retrieve_chunks_by_method(
+    retrieval_service: RetrievalService,
+    method: str,
+    query: str,
+    user_id: uuid.UUID,
+    document_id: uuid.UUID,
+    top_k: int,
+) -> list[RetrievedChunk]:
+    if method == "vector":
+        return retrieval_service.vector_search(
+            query=query,
+            user_id=user_id,
+            document_id=document_id,
+            top_k=top_k,
+        )
+
+    if method == "fts_search":
+        return retrieval_service.fts_search(
+            query=query,
+            user_id=user_id,
+            document_id=document_id,
+            top_k=top_k,
+        )
+
+    if method == "hybrid":
+        return retrieval_service.hybrid_search(
+            query=query,
+            user_id=user_id,
+            document_id=document_id,
+            top_k=top_k,
+        )
+
+    raise ValueError(f"Unsupported retrieval method: {method}")
 
 
 def main() -> None:
     dataset = load_dataset(path=DATASET_PATH)
 
     db = SessionLocal()
-
     try:
         document_repository = DocumentRepository(db=db)
         retrieval_service = get_retrieval_service(db=db)
@@ -42,114 +78,127 @@ def main() -> None:
         citation_evaluator = CitationEvaluator()
         answer_evaluator = AnswerEvaluator() if RUN_ANSWER_EVALUATION else None
 
-        results: list[RetrievalEvaluationResult] = []
-        citation_results: list[CitationEvaluationResult] = []
-        citation_integrity_results: list[CitationIntegrityEvaluationResult] = []
-        answer_results: list[AnswerEvaluationResult] = []
+        benchmark_results: dict[str, list[RetrievalEvaluationResult]] = {}
+        for method in RETRIEVAL_METHODS:
+            print()
+            print(f"=== Benchmark: {method} ===")
+            results: list[RetrievalEvaluationResult] = []
+            citation_results: list[CitationEvaluationResult] = []
+            citation_integrity_results: list[CitationIntegrityEvaluationResult] = []
+            answer_results: list[AnswerEvaluationResult] = []
 
-        for test_case in dataset:
-            user_id = uuid.UUID(test_case["user_id"])
+            for test_case in dataset:
+                user_id = uuid.UUID(test_case["user_id"])
 
-            document = document_repository.get_user_document_by_original_filename(
-                user_id=user_id,
-                original_filename=test_case["document_name"],
-            )
-
-            if document is None:
-                print(
-                    f"[MISSING DOCUMENT] "
-                    f"user_id={user_id} "
-                    f"document={test_case['document_name']}"
-                )
-                continue
-
-            retrieval_chunks = retrieval_service.retrieve_relevant_chunks(
-                query=test_case["question"],
-                user_id=user_id,
-                document_id=document.id,
-                top_k=TOP_K,
-            )
-
-            build_context = context_builder_service.build_context(
-                retrieved_chunks=retrieval_chunks,
-            )
-
-            result = retrieval_evaluator.evaluate(
-                test_id=test_case["id"],
-                question_language=test_case["question_language"],
-                expected_pages=test_case["expected_pages"],
-                retrieved_chunks=retrieval_chunks,
-            )
-
-            citation_result = citation_evaluator.evaluate(
-                test_id=test_case["id"],
-                question_language=test_case["question_language"],
-                expected_pages=test_case["expected_pages"],
-                citations=build_context.citations,
-            )
-
-            citation_integrity_result = citation_evaluator.evaluate_integrity(
-                test_id=test_case["id"],
-                question_language=test_case["question_language"],
-                retrieved_chunks=retrieval_chunks,
-                citations=build_context.citations,
-            )
-
-            results.append(result)
-            print_result(result=result)
-
-            citation_results.append(citation_result)
-            print_citation_result(result=citation_result)
-
-            citation_integrity_results.append(citation_integrity_result)
-            print_citation_integrity_result(result=citation_integrity_result)
-
-            if RUN_ANSWER_EVALUATION:
-                assert llm_service is not None
-                assert answer_evaluator is not None
-                
-                answer = llm_service.generate_answer(
-                    question=test_case["question"],
-                    context=build_context.context,
+                document = document_repository.get_user_document_by_original_filename(
+                    user_id=user_id,
+                    original_filename=test_case["document_name"],
                 )
 
-                answer_result = answer_evaluator.evaluate(
+                if document is None:
+                    print(
+                        f"[MISSING DOCUMENT] "
+                        f"user_id={user_id} "
+                        f"document={test_case['document_name']}"
+                    )
+                    continue
+
+                retrieval_chunks = retrieve_chunks_by_method(
+                    retrieval_service=retrieval_service,
+                    method=method,
+                    query=test_case["question"],
+                    user_id=user_id,
+                    document_id=document.id,
+                    top_k=TOP_K,
+                )
+
+                build_context = context_builder_service.build_context(
+                    retrieved_chunks=retrieval_chunks,
+                )
+
+                result = retrieval_evaluator.evaluate(
                     test_id=test_case["id"],
                     question_language=test_case["question_language"],
-                    answer=answer,
-                    expected_keywords=test_case["expected_answer_keywords"],
-                    citation_count=len(build_context.citations),
-                )
-                answer_results.append(answer_result)
-                if not answer_result.passed:
-                    print(f"Answer: {answer}")
-                print(
-                    f"[ANSWER {'PASS' if answer_result.passed else 'FAIL'}] "
-                    f"{answer_result.test_id} "
-                    f"keyword_recall={answer_result.keyword_recall:.2f} "
-                    f"has_citations={answer_result.has_citations} "
-                    f"missing_keywords={answer_result.missing_keywords}"
+                    expected_pages=test_case["expected_pages"],
+                    retrieved_chunks=retrieval_chunks,
                 )
 
-        print_summary(results=results)
-        print_citation_summary(results=citation_results)
-        print_citation_integrity_summary(results=citation_integrity_results)
-        if RUN_ANSWER_EVALUATION:
-            print_answer_summary(results=answer_results)
+                citation_result = citation_evaluator.evaluate(
+                    test_id=test_case["id"],
+                    question_language=test_case["question_language"],
+                    expected_pages=test_case["expected_pages"],
+                    citations=build_context.citations,
+                )
 
-        write_json_report(
-            path=REPORT_PATH,
-            dataset_path=DATASET_PATH,
-            top_k=TOP_K,
-            results=results,
-        )
-        write_markdown_report(
+                citation_integrity_result = citation_evaluator.evaluate_integrity(
+                    test_id=test_case["id"],
+                    question_language=test_case["question_language"],
+                    retrieved_chunks=retrieval_chunks,
+                    citations=build_context.citations,
+                )
+
+                results.append(result)
+                print_result(result=result)
+
+                citation_results.append(citation_result)
+                print_citation_result(result=citation_result)
+
+                citation_integrity_results.append(citation_integrity_result)
+                print_citation_integrity_result(result=citation_integrity_result)
+
+                if RUN_ANSWER_EVALUATION:
+                    assert llm_service is not None
+                    assert answer_evaluator is not None
+
+                    answer = llm_service.generate_answer(
+                        question=test_case["question"],
+                        context=build_context.context,
+                    )
+
+                    answer_result = answer_evaluator.evaluate(
+                        test_id=test_case["id"],
+                        question_language=test_case["question_language"],
+                        answer=answer,
+                        expected_keywords=test_case["expected_answer_keywords"],
+                        citation_count=len(build_context.citations),
+                    )
+                    answer_results.append(answer_result)
+                    if not answer_result.passed:
+                        print(f"Answer: {answer}")
+                    print(
+                        f"[ANSWER {'PASS' if answer_result.passed else 'FAIL'}] "
+                        f"{answer_result.test_id} "
+                        f"keyword_recall={answer_result.keyword_recall:.2f} "
+                        f"has_citations={answer_result.has_citations} "
+                        f"missing_keywords={answer_result.missing_keywords}"
+                    )
+
+            print_summary(results=results)
+            print_citation_summary(results=citation_results)
+            print_citation_integrity_summary(results=citation_integrity_results)
+            if RUN_ANSWER_EVALUATION:
+                print_answer_summary(results=answer_results)
+
+            write_json_report(
+                path=REPORTS_DIR / f"{method}.json",
+                dataset_path=DATASET_PATH,
+                top_k=TOP_K,
+                results=results,
+            )
+            write_markdown_report(
+                path=REPORTS_DIR / f"{method}.md",
+                dataset_path=DATASET_PATH,
+                top_k=TOP_K,
+                retrieval_results=results,
+                citation_results=citation_results,
+                citation_integrity_results=citation_integrity_results,
+            )
+            benchmark_results[method] = results
+
+        write_benchmark_comparison(
             path=BENCHMARK_PATH,
-            dataset_path=DATASET_PATH,
             top_k=TOP_K,
-            retrieval_results=results,
-            citation_results=citation_results,
-            citation_integrity_results=citation_integrity_results,
+            benchmark_results=benchmark_results,
         )
     finally:
         db.close()
@@ -442,6 +491,32 @@ def write_markdown_report(
     print(f"Wrote Markdown report to {path}")
 
 
+def write_benchmark_comparison(
+    path: Path,
+    top_k: int,
+    benchmark_results: dict[str, list[RetrievalEvaluationResult]],
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    lines = [
+        "# Benchmark Comparison",
+        "",
+        f"| Method | Total | Hit@{top_k} | MRR |",
+        "|---|---:|---:|---:|",
+    ]
+    for method, results in benchmark_results.items():
+        total, _, hit_rate, mean_mrr = calculate_summary(results=results)
+        lines.append(
+            f"| {method} | {total} | {hit_rate:.2%} | {mean_mrr:.2f} |"
+        )
+
+    lines.append("")
+    with path.open("w", encoding="utf-8") as file:
+        file.write("\n".join(lines))
+
+    print(f"Wrote benchmark comparison to {path}")
+
+
 def calculate_integrity_summary(
     results: list[CitationIntegrityEvaluationResult],
 ) -> tuple[int, int, float]:
@@ -477,7 +552,8 @@ def build_language_summary_lines(
     title: str,
     results: list[RetrievalEvaluationResult] | list[CitationEvaluationResult],
 ) -> list[str]:
-    grouped_results: dict[str, list[RetrievalEvaluationResult] | list[CitationEvaluationResult]] = {}
+    grouped_results: dict[str, list[RetrievalEvaluationResult]
+                          | list[CitationEvaluationResult]] = {}
 
     for result in results:
         grouped_results.setdefault(result.question_language, []).append(result)

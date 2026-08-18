@@ -1,0 +1,258 @@
+{
+  "dataset": "evaluation/datasets/rag_eval.json",
+  "top_k": 5,
+  "total": 18,
+  "hit_count": 2,
+  "hit_rate": 0.1111111111111111,
+  "mrr": 0.1111111111111111,
+  "results": [
+    {
+      "test_id": "chainlink_en_001",
+      "question_language": "en",
+      "hit": true,
+      "expected_pages": [
+        2,
+        6
+      ],
+      "retrieved_pages": [
+        6
+      ],
+      "matched_pages": [
+        6
+      ],
+      "best_rank": 1,
+      "mrr": 1.0
+    },
+    {
+      "test_id": "chainlink_en_002",
+      "question_language": "en",
+      "hit": false,
+      "expected_pages": [
+        7,
+        8
+      ],
+      "retrieved_pages": [
+        2,
+        6,
+        57,
+        35
+      ],
+      "matched_pages": [],
+      "best_rank": null,
+      "mrr": 0.0
+    },
+    {
+      "test_id": "chainlink_en_003",
+      "question_language": "en",
+      "hit": false,
+      "expected_pages": [
+        9,
+        10
+      ],
+      "retrieved_pages": [
+        2,
+        35
+      ],
+      "matched_pages": [],
+      "best_rank": null,
+      "mrr": 0.0
+    },
+    {
+      "test_id": "chainlink_en_004",
+      "question_language": "en",
+      "hit": false,
+      "expected_pages": [
+        24,
+        25
+      ],
+      "retrieved_pages": [],
+      "matched_pages": [],
+      "best_rank": null,
+      "mrr": 0.0
+    },
+    {
+      "test_id": "chainlink_en_005",
+      "question_language": "en",
+      "hit": false,
+      "expected_pages": [
+        35
+      ],
+      "retrieved_pages": [],
+      "matched_pages": [],
+      "best_rank": null,
+      "mrr": 0.0
+    },
+    {
+      "test_id": "chainlink_en_006",
+      "question_language": "en",
+      "hit": false,
+      "expected_pages": [
+        43,
+        45
+      ],
+      "retrieved_pages": [],
+      "matched_pages": [],
+      "best_rank": null,
+      "mrr": 0.0
+    },
+    {
+      "test_id": "chainlink_en_007",
+      "question_language": "en",
+      "hit": true,
+      "expected_pages": [
+        57,
+        58
+      ],
+      "retrieved_pages": [
+        57
+      ],
+      "matched_pages": [
+        57
+      ],
+      "best_rank": 1,
+      "mrr": 1.0
+    },
+    {
+      "test_id": "chainlink_en_008",
+      "question_language": "en",
+      "hit": false,
+      "expected_pages": [
+        65,
+        70
+      ],
+      "retrieved_pages": [],
+      "matched_pages": [],
+      "best_rank": null,
+      "mrr": 0.0
+    },
+    {
+      "test_id": "chainlink_en_009",
+      "question_language": "en",
+      "hit": false,
+      "expected_pages": [
+        80,
+        81
+      ],
+      "retrieved_pages": [],
+      "matched_pages": [],
+      "best_rank": null,
+      "mrr": 0.0
+    },
+    {
+      "test_id": "chainlink_vi_001",
+      "question_language": "vi",
+      "hit": false,
+      "expected_pages": [
+        2,
+        6
+      ],
+      "retrieved_pages": [],
+      "matched_pages": [],
+      "best_rank": null,
+      "mrr": 0.0
+    },
+    {
+      "test_id": "chainlink_vi_002",
+      "question_language": "vi",
+      "hit": false,
+      "expected_pages": [
+        7,
+        8
+      ],
+      "retrieved_pages": [],
+      "matched_pages": [],
+      "best_rank": null,
+      "mrr": 0.0
+    },
+    {
+      "test_id": "chainlink_vi_003",
+      "question_language": "vi",
+      "hit": false,
+      "expected_pages": [
+        9,
+        10
+      ],
+      "retrieved_pages": [],
+      "matched_pages": [],
+      "best_rank": null,
+      "mrr": 0.0
+    },
+    {
+      "test_id": "chainlink_vi_004",
+      "question_language": "vi",
+      "hit": false,
+      "expected_pages": [
+        24,
+        25
+      ],
+      "retrieved_pages": [],
+      "matched_pages": [],
+      "best_rank": null,
+      "mrr": 0.0
+    },
+    {
+      "test_id": "chainlink_vi_005",
+      "question_language": "vi",
+      "hit": false,
+      "expected_pages": [
+        35
+      ],
+      "retrieved_pages": [],
+      "matched_pages": [],
+      "best_rank": null,
+      "mrr": 0.0
+    },
+    {
+      "test_id": "chainlink_vi_006",
+      "question_language": "vi",
+      "hit": false,
+      "expected_pages": [
+        43,
+        45
+      ],
+      "retrieved_pages": [],
+      "matched_pages": [],
+      "best_rank": null,
+      "mrr": 0.0
+    },
+    {
+      "test_id": "chainlink_vi_007",
+      "question_language": "vi",
+      "hit": false,
+      "expected_pages": [
+        57,
+        58
+      ],
+      "retrieved_pages": [],
+      "matched_pages": [],
+      "best_rank": null,
+      "mrr": 0.0
+    },
+    {
+      "test_id": "chainlink_vi_008",
+      "question_language": "vi",
+      "hit": false,
+      "expected_pages": [
+        65,
+        70
+      ],
+      "retrieved_pages": [],
+      "matched_pages": [],
+      "best_rank": null,
+      "mrr": 0.0
+    },
+    {
+      "test_id": "chainlink_vi_009",
+      "question_language": "vi",
+      "hit": false,
+      "expected_pages": [
+        80,
+        81
+      ],
+      "retrieved_pages": [],
+      "matched_pages": [],
+      "best_rank": null,
+      "mrr": 0.0
+    }
+  ]
+}

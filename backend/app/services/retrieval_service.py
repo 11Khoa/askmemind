@@ -46,7 +46,7 @@ class RetrievalService:
             for chunk, distance in search_results
         ]
 
-    def bm25_search(
+    def fts_search(
         self,
         query: str,
         user_id: uuid.UUID,
@@ -76,7 +76,7 @@ class RetrievalService:
         document_id: uuid.UUID | None = None,
         top_k: int = 10,
         vector_weight: float = 0.6,
-        bm25_weight: float = 0.4,
+        lexical_weight: float = 0.4,
         candidate_k: int | None = None,
     ) -> list[RetrievedChunk]:
         candidate_limit = candidate_k if candidate_k is not None else top_k * 2
@@ -87,7 +87,7 @@ class RetrievalService:
             document_id=document_id,
             top_k=candidate_limit,
         )
-        bm25_results = self.bm25_search(
+        lexical_results = self.fts_search(
             query=query,
             user_id=user_id,
             document_id=document_id,
@@ -104,8 +104,8 @@ class RetrievalService:
             fused_scores=fused_scores,
         )
         self._add_rrf_scores(
-            results=bm25_results,
-            weight=bm25_weight,
+            results=lexical_results,
+            weight=lexical_weight,
             fused_results=fused_results,
             fused_scores=fused_scores,
         )

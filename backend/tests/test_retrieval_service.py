@@ -125,7 +125,7 @@ def test_vector_search_embeds_query_and_searches_chunks() -> None:
     ]
 
 
-def test_bm25_search_uses_keyword_search_and_maps_scores() -> None:
+def test_fts_search_uses_keyword_search_and_maps_scores() -> None:
     user_id = uuid.uuid4()
     document_id = uuid.uuid4()
 
@@ -143,15 +143,15 @@ def test_bm25_search_uses_keyword_search_and_maps_scores() -> None:
         chunk_repository=chunk_repository,
     )
 
-    results = service.bm25_search(
-        query="test bm25 use key word",
+    results = service.fts_search(
+        query="test full text search",
         user_id=user_id,
         document_id=document_id,
         top_k=5,
     )
 
     chunk_repository.search_keyword_chunks.assert_called_once_with(
-        query="test bm25 use key word",
+        query="test full text search",
         user_id=user_id,
         document_id=document_id,
         top_k=5,
@@ -163,7 +163,7 @@ def test_bm25_search_uses_keyword_search_and_maps_scores() -> None:
     ]
 
 
-def test_hybrid_search_fuses_vector_and_bm25_rankings() -> None:
+def test_hybrid_search_fuses_vector_and_fts_rankings() -> None:
     user_id = uuid.uuid4()
     document_id = uuid.uuid4()
 
@@ -184,7 +184,7 @@ def test_hybrid_search_fuses_vector_and_bm25_rankings() -> None:
         RetrievedChunk(chunk=chunk_b, distance=0.2),
     ])
 
-    service.bm25_search = Mock(return_value=[
+    service.fts_search = Mock(return_value=[
         RetrievedChunk(chunk=chunk_b, distance=None, score=2.0),
         RetrievedChunk(chunk=chunk_c, distance=None, score=1.5),
     ])
@@ -202,7 +202,7 @@ def test_hybrid_search_fuses_vector_and_bm25_rankings() -> None:
         document_id=document_id,
         top_k=4,
     )
-    service.bm25_search.assert_called_once_with(
+    service.fts_search.assert_called_once_with(
         query="test query hybrid search",
         user_id=user_id,
         document_id=document_id,
