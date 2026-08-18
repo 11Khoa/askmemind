@@ -9,7 +9,8 @@ from app.services.embedding_service import EmbeddingService
 @dataclass(frozen=True)
 class RetrievedChunk:
     chunk: Chunk
-    distance: float
+    distance: float | None
+    score: float | None = None
 
 
 class RetrievalService:
@@ -21,7 +22,7 @@ class RetrievalService:
         self.embedding_service = embedding_service
         self.chunk_repository = chunk_repository
 
-    def retrieve_relevant_chunks(
+    def vector_search(
         self,
         query: str,
         user_id: uuid.UUID,
@@ -44,3 +45,114 @@ class RetrievalService:
             )
             for chunk, distance in search_results
         ]
+
+    def bm25_search(
+        self,
+        query: str,
+        user_id: uuid.UUID,
+        document_id: uuid.UUID | None = None,
+        top_k: int = 5,
+    ) -> list[RetrievedChunk]:
+        search_results = self.chunk_repository.search_keyword_chunks(
+            query=query,
+            user_id=user_id,
+            document_id=document_id,
+            top_k=top_k,
+        )
+
+        return [
+            RetrievedChunk(
+                chunk=chunk,
+                distance=None,
+                score=score,
+            )
+            for chunk, score in search_results
+        ]
+
+    def hybrid_search(
+        self,
+        query: str,
+        user_id: uuid.UUID,
+        document_id: uuid.UUID | None = None,
+        top_k: int = 10,
+        vector_weight: float = 0.6,
+        bm25_weight: float = 0.4,
+        candidate_k: int | None = None,
+    ) -> list[RetrievedChunk]:
+        candidate_limit = candidate_k if candidate_k is not None else top_k * 2
+        candidate_limit = max(candidate_limit, top_k)
+        vector_results = self.vector_search(
+            query=query,
+            user_id=user_id,
+            document_id=document_id,
+            top_k=candidate_limit,
+        )
+        bm25_results = self.bm25_search(
+            query=query,
+            user_id=user_id,
+            document_id=document_id,
+            top_k=candidate_limit,
+        )
+
+        fused_results: dict[uuid.UUID, RetrievedChunk] = {}
+        fused_scores: dict[uuid.UUID, float] = {}
+
+        self._add_rrf_scores(
+            results=vector_results,
+            weight=vector_weight,
+            fused_results=fused_results,
+            fused_scores=fused_scores,
+        )
+        self._add_rrf_scores(
+            results=bm25_results,
+            weight=bm25_weight,
+            fused_results=fused_results,
+            fused_scores=fused_scores,
+        )
+
+        ranked_chunk_ids = sorted(
+            fused_scores,
+            key=lambda chunk_id: fused_scores[chunk_id],
+            reverse=True,
+        )
+
+        return [
+            RetrievedChunk(
+                chunk=fused_results[chunk_id].chunk,
+                distance=fused_results[chunk_id].distance,
+                score=fused_scores[chunk_id],
+            )
+            for chunk_id in ranked_chunk_ids[:top_k]
+        ]
+
+    def retrieve_relevant_chunks(
+        self,
+        query: str,
+        user_id: uuid.UUID,
+        document_id: uuid.UUID | None = None,
+        top_k: int = 5,
+    ) -> list[RetrievedChunk]:
+        return self.vector_search(
+            query=query,
+            user_id=user_id,
+            document_id=document_id,
+            top_k=top_k,
+        )
+
+    def _add_rrf_scores(
+        self,
+        results: list[RetrievedChunk],
+        weight: float,
+        fused_results: dict[uuid.UUID, RetrievedChunk],
+        fused_scores: dict[uuid.UUID, float],
+        rrf_k: int = 60,
+    ) -> None:
+        for rank, result in enumerate(results, start=1):
+            chunk_id = result.chunk.id
+
+            if chunk_id not in fused_results:
+                fused_results[chunk_id] = result
+
+            fused_scores[chunk_id] = (
+                fused_scores.get(chunk_id, 0.0) + weight / (rrf_k + rank)
+            )

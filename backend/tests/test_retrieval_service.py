@@ -80,3 +80,133 @@ def test_retrieve_relevant_chunks_can_search_all_user_documents() -> None:
     assert results == [
         RetrievedChunk(chunk=chunk, distance=0.2),
     ]
+
+
+def test_vector_search_embeds_query_and_searches_chunks() -> None:
+    user_id = uuid.uuid4()
+    document_id = uuid.uuid4()
+    query_embedding = [0.1, 0.2, 0.3]
+
+    embedding_service = Mock(spec=EmbeddingService)
+    embedding_service.embed_query.return_value = query_embedding
+
+    first_chunk = Mock()
+    second_chunk = Mock()
+    chunk_repository = Mock(spec=ChunkRepository)
+    chunk_repository.search_similar_chunks.return_value = [
+        (first_chunk, 0.12),
+        (second_chunk, 0.34),
+    ]
+
+    service = RetrievalService(
+        embedding_service=embedding_service,
+        chunk_repository=chunk_repository,
+    )
+
+    results = service.vector_search(
+        query="Test query",
+        user_id=user_id,
+        document_id=document_id,
+        top_k=5,
+    )
+
+    embedding_service.embed_query.assert_called_once_with(
+        text="Test query",
+    )
+    chunk_repository.search_similar_chunks.assert_called_once_with(
+        embedding=query_embedding,
+        user_id=user_id,
+        document_id=document_id,
+        top_k=5,
+    )
+    assert results == [
+        RetrievedChunk(chunk=first_chunk, distance=0.12),
+        RetrievedChunk(chunk=second_chunk, distance=0.34),
+    ]
+
+
+def test_bm25_search_uses_keyword_search_and_maps_scores() -> None:
+    user_id = uuid.uuid4()
+    document_id = uuid.uuid4()
+
+    first_chunk = Mock()
+    second_chunk = Mock()
+    embedding_service = Mock(spec=EmbeddingService)
+    chunk_repository = Mock(spec=ChunkRepository)
+    chunk_repository.search_keyword_chunks.return_value = [
+        (first_chunk, 0.13),
+        (second_chunk, 0.36),
+    ]
+
+    service = RetrievalService(
+        embedding_service=embedding_service,
+        chunk_repository=chunk_repository,
+    )
+
+    results = service.bm25_search(
+        query="test bm25 use key word",
+        user_id=user_id,
+        document_id=document_id,
+        top_k=5,
+    )
+
+    chunk_repository.search_keyword_chunks.assert_called_once_with(
+        query="test bm25 use key word",
+        user_id=user_id,
+        document_id=document_id,
+        top_k=5,
+    )
+    embedding_service.embed_query.assert_not_called()
+    assert results == [
+        RetrievedChunk(chunk=first_chunk, distance=None, score=0.13),
+        RetrievedChunk(chunk=second_chunk, distance=None, score=0.36),
+    ]
+
+
+def test_hybrid_search_fuses_vector_and_bm25_rankings() -> None:
+    user_id = uuid.uuid4()
+    document_id = uuid.uuid4()
+
+    chunk_a = Mock(id=uuid.uuid4())
+    chunk_b = Mock(id=uuid.uuid4())
+    chunk_c = Mock(id=uuid.uuid4())
+
+    embedding_service = Mock(spec=EmbeddingService)
+    chunk_repository = Mock(spec=ChunkRepository)
+
+    service = RetrievalService(
+        embedding_service=embedding_service,
+        chunk_repository=chunk_repository,
+    )
+
+    service.vector_search = Mock(return_value=[
+        RetrievedChunk(chunk=chunk_a, distance=0.1),
+        RetrievedChunk(chunk=chunk_b, distance=0.2),
+    ])
+
+    service.bm25_search = Mock(return_value=[
+        RetrievedChunk(chunk=chunk_b, distance=None, score=2.0),
+        RetrievedChunk(chunk=chunk_c, distance=None, score=1.5),
+    ])
+
+    results = service.hybrid_search(
+        query="test query hybrid search",
+        user_id=user_id,
+        document_id=document_id,
+        top_k=2,
+    )
+
+    service.vector_search.assert_called_once_with(
+        query="test query hybrid search",
+        user_id=user_id,
+        document_id=document_id,
+        top_k=4,
+    )
+    service.bm25_search.assert_called_once_with(
+        query="test query hybrid search",
+        user_id=user_id,
+        document_id=document_id,
+        top_k=4,
+    )
+    assert [result.chunk for result in results] == [chunk_b, chunk_a]
+    assert all(result.score is not None for result in results)

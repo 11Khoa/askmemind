@@ -3,7 +3,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from app.core.dependencies import get_retrieval_service
+from app.core.dependencies import get_llm_service, get_retrieval_service
 from app.database import SessionLocal
 from app.repositories.document_repository import DocumentRepository
 from app.services.context_builder_service import ContextBuilderService
@@ -16,11 +16,16 @@ from evaluation.evaluators.citation_evaluator import (
     CitationEvaluationResult,
     CitationIntegrityEvaluationResult,
 )
+from evaluation.evaluators.answer_evaluator import (
+    AnswerEvaluator,
+    AnswerEvaluationResult,
+)
 
 DATASET_PATH = Path("evaluation/datasets/rag_eval.json")
 REPORT_PATH = Path("evaluation/reports/baseline.json")
 BENCHMARK_PATH = Path("evaluation/reports/benchmark.md")
 TOP_K = 5
+RUN_ANSWER_EVALUATION = False
 
 
 def main() -> None:
@@ -31,13 +36,16 @@ def main() -> None:
     try:
         document_repository = DocumentRepository(db=db)
         retrieval_service = get_retrieval_service(db=db)
+        llm_service = get_llm_service() if RUN_ANSWER_EVALUATION else None
         retrieval_evaluator = RetrievalEvaluator()
         context_builder_service = ContextBuilderService()
         citation_evaluator = CitationEvaluator()
+        answer_evaluator = AnswerEvaluator() if RUN_ANSWER_EVALUATION else None
 
         results: list[RetrievalEvaluationResult] = []
         citation_results: list[CitationEvaluationResult] = []
         citation_integrity_results: list[CitationIntegrityEvaluationResult] = []
+        answer_results: list[AnswerEvaluationResult] = []
 
         for test_case in dataset:
             user_id = uuid.UUID(test_case["user_id"])
@@ -96,9 +104,39 @@ def main() -> None:
             citation_integrity_results.append(citation_integrity_result)
             print_citation_integrity_result(result=citation_integrity_result)
 
+            if RUN_ANSWER_EVALUATION:
+                assert llm_service is not None
+                assert answer_evaluator is not None
+                
+                answer = llm_service.generate_answer(
+                    question=test_case["question"],
+                    context=build_context.context,
+                )
+
+                answer_result = answer_evaluator.evaluate(
+                    test_id=test_case["id"],
+                    question_language=test_case["question_language"],
+                    answer=answer,
+                    expected_keywords=test_case["expected_answer_keywords"],
+                    citation_count=len(build_context.citations),
+                )
+                answer_results.append(answer_result)
+                if not answer_result.passed:
+                    print(f"Answer: {answer}")
+                print(
+                    f"[ANSWER {'PASS' if answer_result.passed else 'FAIL'}] "
+                    f"{answer_result.test_id} "
+                    f"keyword_recall={answer_result.keyword_recall:.2f} "
+                    f"has_citations={answer_result.has_citations} "
+                    f"missing_keywords={answer_result.missing_keywords}"
+                )
+
         print_summary(results=results)
         print_citation_summary(results=citation_results)
         print_citation_integrity_summary(results=citation_integrity_results)
+        if RUN_ANSWER_EVALUATION:
+            print_answer_summary(results=answer_results)
+
         write_json_report(
             path=REPORT_PATH,
             dataset_path=DATASET_PATH,
@@ -252,6 +290,24 @@ def print_citation_integrity_summary(
     print("Citation Integrity Summary")
     print(f"Total: {total}")
     print(f"Pass rate: {pass_rate:.2%}")
+
+
+def print_answer_summary(results: list[AnswerEvaluationResult]) -> None:
+    if not results:
+        print("No answer evaluation results.")
+        return
+
+    total = len(results)
+    pass_count = sum(1 for result in results if result.passed)
+    pass_rate = pass_count / total
+    mean_keyword_recall = (
+        sum(result.keyword_recall for result in results) / total
+    )
+    print()
+    print("Answer Summary")
+    print(f"Total: {total}")
+    print(f"Pass rate: {pass_rate:.2%}")
+    print(f"Keyword recall: {mean_keyword_recall:.2f}")
 
 
 def write_markdown_report(

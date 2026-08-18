@@ -1,8 +1,8 @@
 import uuid
 from collections.abc import Sequence
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
-from sqlalchemy import select
 
 from app.models.chunk import Chunk
 from app.models.document import Document
@@ -91,4 +91,35 @@ class ChunkRepository:
         return [
             (chunk, distance)
             for chunk, distance in rows
+        ]
+
+    def search_keyword_chunks(
+        self,
+        query: str,
+        user_id: uuid.UUID,
+        document_id: uuid.UUID | None = None,
+        top_k: int = 5,
+    ) -> list[tuple[Chunk, float]]:
+        text_vector = func.to_tsvector("simple", Chunk.content)
+        text_query = func.plainto_tsquery("simple", query)
+        rank = func.ts_rank_cd(text_vector, text_query).label("rank")
+        statement = (
+            select(Chunk, rank)
+            .join(Document, Chunk.document_id == Document.id)
+            .where(
+                Document.user_id == user_id,
+                text_vector.op("@@")(text_query),
+            )
+        )
+
+        if document_id is not None:
+            statement = statement.where(Chunk.document_id == document_id)
+
+        statement = statement.order_by(rank.desc()).limit(top_k)
+
+        rows = self.db.execute(statement).all()
+
+        return [
+            (chunk, rank)
+            for chunk, rank in rows
         ]
