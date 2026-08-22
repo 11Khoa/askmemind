@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import func, literal_column, select
 from sqlalchemy.orm import Session
 
 from app.models.chunk import Chunk
@@ -100,8 +100,15 @@ class ChunkRepository:
         document_id: uuid.UUID | None = None,
         top_k: int = 5,
     ) -> list[tuple[Chunk, float]]:
-        text_vector = func.to_tsvector("simple", Chunk.content)
-        text_query = func.plainto_tsquery("simple", query)
+        text_search_config = literal_column("'simple'::regconfig")
+        text_vector = func.to_tsvector(
+            text_search_config,
+            Chunk.content,
+        )
+        text_query = func.plainto_tsquery(
+            text_search_config,
+            query,
+        )
         rank = func.ts_rank_cd(text_vector, text_query).label("rank")
         statement = (
             select(Chunk, rank)
