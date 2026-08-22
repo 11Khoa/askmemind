@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.groq.com/openai/v1"
     llm_max_tokens: int = 500
 
+    hybrid_search_enabled: bool = False
+
     upload_dir: str = "storage/uploads"
     temp_dir: str = "storage/temp"
 

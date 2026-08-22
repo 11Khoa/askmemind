@@ -18,9 +18,11 @@ class RetrievalService:
         self,
         embedding_service: EmbeddingService,
         chunk_repository: ChunkRepository,
+        hybrid_search_enabled: bool = False,
     ) -> None:
         self.embedding_service = embedding_service
         self.chunk_repository = chunk_repository
+        self.hybrid_search_enabled = hybrid_search_enabled
 
     def vector_search(
         self,
@@ -132,6 +134,14 @@ class RetrievalService:
         document_id: uuid.UUID | None = None,
         top_k: int = 5,
     ) -> list[RetrievedChunk]:
+        if self.hybrid_search_enabled:
+            return self.hybrid_search(
+                query=query,
+                user_id=user_id,
+                document_id=document_id,
+                top_k=top_k,
+            )
+
         return self.vector_search(
             query=query,
             user_id=user_id,

@@ -210,3 +210,45 @@ def test_hybrid_search_fuses_vector_and_fts_rankings() -> None:
     )
     assert [result.chunk for result in results] == [chunk_b, chunk_a]
     assert all(result.score is not None for result in results)
+
+
+def test_retrieve_relevant_chunks_uses_hybrid_search_when_enabled() -> None:
+    user_id = uuid.uuid4()
+    document_id = uuid.uuid4()
+    chunk = Mock(id=uuid.uuid4())
+
+    expected_results = [
+        RetrievedChunk(
+            chunk=chunk,
+            distance=0.12,
+            score=0.02,
+        )
+    ]
+
+    embedding_service = Mock(spec=EmbeddingService)
+    chunk_repository = Mock(spec=ChunkRepository)
+
+    service = RetrievalService(
+        embedding_service=embedding_service,
+        chunk_repository=chunk_repository,
+        hybrid_search_enabled=True,
+    )
+
+    service.hybrid_search = Mock(return_value=expected_results)
+    service.vector_search = Mock()
+
+    results = service.retrieve_relevant_chunks(
+        query="What are hybrid smart contracts",
+        user_id=user_id,
+        document_id=document_id,
+        top_k=5,
+    )
+
+    service.hybrid_search.assert_called_once_with(
+        query="What are hybrid smart contracts",
+        user_id=user_id,
+        document_id=document_id,
+        top_k=5,
+    )
+    service.vector_search.assert_not_called()
+    assert results == expected_results
