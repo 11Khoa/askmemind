@@ -4,6 +4,117 @@
 <br>
 AskMeMind is a PDF question-answering platform built around Retrieval-Augmented Generation (RAG). Users can upload PDFs, extract searchable text, generate embeddings, retrieve relevant document chunks, and ask questions with citation-aware answers.
 
+```mermaid
+flowchart TD
+
+subgraph group_client["Client Surface"]
+  node_streamlit["Streamlit Client<br/>[app.py]"]
+end
+
+subgraph group_api["API and Identity"]
+  node_auth_api["Auth API<br/>[auth.py]"]
+  node_document_api["Document API<br/>[document.py]"]
+  node_upload_api["Upload API<br/>[upload.py]"]
+  node_chat_api["Chat API<br/>[chat.py]"]
+  node_auth_service["Auth Service<br/>[auth_service.py]"]
+  node_security["JWT Security<br/>[security.py]"]
+end
+
+subgraph group_ingest["Document Ingestion"]
+  node_document_service["Document Service"]
+  node_processing["PDF Processing"]
+  node_file_storage["File Storage"]
+  node_pdf_extract["PDF Extraction"]
+  node_chunking["Chunk Service<br/>[chunk_service.py]"]
+end
+
+subgraph group_rag["RAG Answering"]
+  node_embedding["Embedding Service"]
+  node_rag_service["RAG Service<br/>[rag_service.py]"]
+  node_retrieval["Retrieval Service"]
+  node_context["Context Builder"]
+  node_llm["LLM Service<br/>[llm_service.py]"]
+end
+
+subgraph group_storage["Persistence and Providers"]
+  node_document_repo["Document Repository"]
+  node_chunk_repo["Chunk Repository"]
+  node_chat_repo["Chat Repository<br/>[chat_repository.py]"]
+  node_postgres[("PostgreSQL pgvector")]
+  node_nvidia["NVIDIA Embeddings"]
+  node_groq["Groq LLM"]
+end
+
+node_user(("User"))
+
+node_user -->|"uses"| node_streamlit
+node_streamlit -->|"authenticates"| node_auth_api
+node_streamlit -->|"uploads PDF"| node_upload_api
+node_streamlit -->|"lists documents"| node_document_api
+node_streamlit -->|"asks questions"| node_chat_api
+node_auth_api -->|"handles auth"| node_auth_service
+node_auth_service -->|"creates tokens"| node_security
+node_auth_service -->|"stores users"| node_postgres
+node_upload_api -->|"starts upload"| node_document_service
+node_document_service -->|"saves file"| node_file_storage
+node_document_service -->|"processes PDF"| node_processing
+node_processing -->|"reads file"| node_file_storage
+node_processing -->|"extracts pages"| node_pdf_extract
+node_processing -->|"creates chunks"| node_chunking
+node_processing -->|"embeds passages"| node_embedding
+node_processing -->|"updates status"| node_document_repo
+node_processing -->|"persists chunks"| node_chunk_repo
+node_embedding -.->|"calls embeddings"| node_nvidia
+node_document_repo -->|"reads writes"| node_postgres
+node_chunk_repo -->|"stores vectors"| node_postgres
+node_document_api -->|"queries documents"| node_document_repo
+node_chat_api -->|"answers question"| node_rag_service
+node_rag_service -->|"retrieves chunks"| node_retrieval
+node_retrieval -->|"embeds query"| node_embedding
+node_retrieval -->|"searches chunks"| node_chunk_repo
+node_rag_service -->|"builds context"| node_context
+node_rag_service -->|"generates answer"| node_llm
+node_llm -.->|"calls completion"| node_groq
+node_chat_api -->|"persists messages"| node_chat_repo
+node_chat_repo -->|"stores chats"| node_postgres
+node_rag_service -->|"returns citations"| node_chat_api
+
+click node_streamlit "https://github.com/11khoa/askmemind/blob/master/frontend/streamlit/app.py"
+click node_auth_api "https://github.com/11khoa/askmemind/blob/master/backend/app/routers/auth.py"
+click node_document_api "https://github.com/11khoa/askmemind/blob/master/backend/app/routers/document.py"
+click node_upload_api "https://github.com/11khoa/askmemind/blob/master/backend/app/routers/upload.py"
+click node_chat_api "https://github.com/11khoa/askmemind/blob/master/backend/app/routers/chat.py"
+click node_auth_service "https://github.com/11khoa/askmemind/blob/master/backend/app/services/auth_service.py"
+click node_security "https://github.com/11khoa/askmemind/blob/master/backend/app/core/security.py"
+click node_document_service "https://github.com/11khoa/askmemind/blob/master/backend/app/services/document_service.py"
+click node_processing "https://github.com/11khoa/askmemind/blob/master/backend/app/services/document_processing_service.py"
+click node_file_storage "https://github.com/11khoa/askmemind/blob/master/backend/app/services/file_storage_service.py"
+click node_pdf_extract "https://github.com/11khoa/askmemind/blob/master/backend/app/services/extraction/pdf_extraction_service.py"
+click node_chunking "https://github.com/11khoa/askmemind/blob/master/backend/app/services/chunk_service.py"
+click node_embedding "https://github.com/11khoa/askmemind/blob/master/backend/app/services/embedding_service.py"
+click node_rag_service "https://github.com/11khoa/askmemind/blob/master/backend/app/services/rag_service.py"
+click node_retrieval "https://github.com/11khoa/askmemind/blob/master/backend/app/services/retrieval_service.py"
+click node_context "https://github.com/11khoa/askmemind/blob/master/backend/app/services/context_builder_service.py"
+click node_llm "https://github.com/11khoa/askmemind/blob/master/backend/app/services/llm_service.py"
+click node_document_repo "https://github.com/11khoa/askmemind/blob/master/backend/app/repositories/document_repository.py"
+click node_chunk_repo "https://github.com/11khoa/askmemind/blob/master/backend/app/repositories/chunk_repository.py"
+click node_chat_repo "https://github.com/11khoa/askmemind/blob/master/backend/app/repositories/chat_repository.py"
+click node_nvidia "https://github.com/11khoa/askmemind/blob/master/backend/app/services/providers/nvidia_embedding_provider.py"
+click node_groq "https://github.com/11khoa/askmemind/blob/master/backend/app/services/providers/groq_llm_provider.py"
+
+classDef toneNeutral fill:#f8fafc,stroke:#334155,stroke-width:1.5px,color:#0f172a
+classDef toneBlue fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#172554
+classDef toneAmber fill:#fef3c7,stroke:#d97706,stroke-width:1.5px,color:#78350f
+classDef toneMint fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d
+classDef toneRose fill:#ffe4e6,stroke:#e11d48,stroke-width:1.5px,color:#881337
+classDef toneIndigo fill:#e0e7ff,stroke:#4f46e5,stroke-width:1.5px,color:#312e81
+classDef toneTeal fill:#ccfbf1,stroke:#0f766e,stroke-width:1.5px,color:#134e4a
+class node_streamlit,node_user toneBlue
+class node_auth_api,node_document_api,node_upload_api,node_chat_api,node_auth_service,node_security toneAmber
+class node_document_service,node_processing,node_file_storage,node_pdf_extract,node_chunking toneMint
+class node_embedding,node_rag_service,node_retrieval,node_context,node_llm toneRose
+class node_document_repo,node_chunk_repo,node_chat_repo,node_postgres,node_nvidia,node_groq toneIndigo
+```
 ## Highlights
 
 - Authenticated PDF upload and document management
