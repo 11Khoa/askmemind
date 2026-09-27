@@ -9,6 +9,7 @@ from app.services.chat_service import ChatService
 from app.services.embedding_service import EmbeddingService
 from app.services.providers.nvidia_embedding_provider import NvidiaEmbeddingProvider
 from app.services.retrieval_service import RetrievalService
+from app.services.reranking_service import RerankingService
 from app.services.llm_service import LLMService
 from app.services.rag_service import RagService
 from app.services.providers.groq_llm_provider import GroqLLMProvider
@@ -164,6 +165,7 @@ def test_get_rag_service_builds_rag_service(monkeypatch) -> None:
     db = Mock()
     retrieval_service = Mock(spec=RetrievalService)
     llm_service = Mock(spec=LLMService)
+    reranking_service = Mock(spec=RerankingService)
 
     monkeypatch.setattr(
         dependencies,
@@ -175,6 +177,11 @@ def test_get_rag_service_builds_rag_service(monkeypatch) -> None:
         "get_llm_service",
         lambda: llm_service,
     )
+    monkeypatch.setattr(
+        dependencies,
+        "get_reranking_service",
+        lambda: reranking_service,
+    )
 
     service = dependencies.get_rag_service(db=db)
 
@@ -182,3 +189,6 @@ def test_get_rag_service_builds_rag_service(monkeypatch) -> None:
     assert service.retrieval_service is retrieval_service
     assert isinstance(service.context_builder_service, ContextBuilderService)
     assert service.llm_service is llm_service
+    assert service.reranking_service is reranking_service
+    assert service.reranker_enabled is dependencies.settings.reranker_enabled
+    assert service.reranker_candidate_k == dependencies.settings.reranker_candidate_k

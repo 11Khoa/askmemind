@@ -8,6 +8,7 @@ from app.database import SessionLocal
 from app.repositories.document_repository import DocumentRepository
 from app.services.context_builder_service import ContextBuilderService
 from app.services.retrieval_service import RetrievalService, RetrievedChunk
+from app.services.reranking_service import RerankingService
 from evaluation.evaluators.retrieval_evaluator import (
     RetrievalEvaluator,
     RetrievalEvaluationResult,
@@ -27,11 +28,13 @@ REPORTS_DIR = Path("evaluation/reports")
 BENCHMARK_PATH = REPORTS_DIR / "benchmark.md"
 TOP_K = 5
 RUN_ANSWER_EVALUATION = False
-RETRIEVAL_METHODS = ("vector", "fts_search", "hybrid")
+RERANKER_CANDIDATE_K = 20
+RETRIEVAL_METHODS = ("vector", "fts_search", "hybrid", "hybrid_reranked")
 
 
 def retrieve_chunks_by_method(
     retrieval_service: RetrievalService,
+    reranking_service: RerankingService,
     method: str,
     query: str,
     user_id: uuid.UUID,
@@ -62,6 +65,19 @@ def retrieve_chunks_by_method(
             top_k=top_k,
         )
 
+    if method == "hybrid_reranked":
+        candidates = retrieval_service.hybrid_search(
+            query=query,
+            user_id=user_id,
+            document_id=document_id,
+            top_k=max(top_k, RERANKER_CANDIDATE_K),
+        )
+        return reranking_service.rerank(
+            query=query,
+            retrieved_chunks=candidates,
+            top_k=top_k,
+        )
+
     raise ValueError(f"Unsupported retrieval method: {method}")
 
 
@@ -72,6 +88,7 @@ def main() -> None:
     try:
         document_repository = DocumentRepository(db=db)
         retrieval_service = get_retrieval_service(db=db)
+        reranking_service = RerankingService()
         llm_service = get_llm_service() if RUN_ANSWER_EVALUATION else None
         retrieval_evaluator = RetrievalEvaluator()
         context_builder_service = ContextBuilderService()
@@ -105,6 +122,7 @@ def main() -> None:
 
                 retrieval_chunks = retrieve_chunks_by_method(
                     retrieval_service=retrieval_service,
+                    reranking_service=reranking_service,
                     method=method,
                     query=test_case["question"],
                     user_id=user_id,

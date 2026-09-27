@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,6 +28,8 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 500
 
     hybrid_search_enabled: bool = False
+    reranker_enabled: bool = False
+    reranker_candidate_k: int = Field(default=20, ge=1, le=100)
 
     upload_dir: str = "storage/uploads"
     temp_dir: str = "storage/temp"

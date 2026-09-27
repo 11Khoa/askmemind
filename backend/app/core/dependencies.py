@@ -22,6 +22,7 @@ from app.services.extraction.pdf_extraction_service import PdfExtractionService
 from app.services.embedding_service import EmbeddingService
 from app.services.providers.nvidia_embedding_provider import NvidiaEmbeddingProvider
 from app.services.retrieval_service import RetrievalService
+from app.services.reranking_service import RerankingService
 from app.services.llm_service import LLMService
 from app.services.providers.groq_llm_provider import GroqLLMProvider
 from app.services.context_builder_service import ContextBuilderService
@@ -179,15 +180,23 @@ def get_llm_service() -> LLMService:
     )
 
 
+def get_reranking_service() -> RerankingService:
+    return RerankingService()
+
+
 def get_rag_service(
     db: Annotated[Session, Depends(get_db)],
 ) -> RagService:
     retrieval_service = get_retrieval_service(db=db)
     context_builder_service = ContextBuilderService()
     llm_service = get_llm_service()
+    reranking_service = get_reranking_service()
 
     return RagService(
         retrieval_service=retrieval_service,
         context_builder_service=context_builder_service,
         llm_service=llm_service,
+        reranking_service=reranking_service,
+        reranker_enabled=settings.reranker_enabled,
+        reranker_candidate_k=settings.reranker_candidate_k,
     )

@@ -11,6 +11,7 @@ class RetrievedChunk:
     chunk: Chunk
     distance: float | None
     score: float | None = None
+    rerank_score: float | None = None
 
 
 class RetrievalService:
