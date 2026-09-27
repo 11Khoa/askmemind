@@ -13,7 +13,7 @@ class ContextCitation:
     page_number: int | None
     start_time_seconds: float | None
     end_time_seconds: float | None
-    distance: float
+    distance: float | None
 
 
 @dataclass(frozen=True)

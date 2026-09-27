@@ -8,9 +8,10 @@ from app.services.context_builder_service import (
     ContextBuilderService,
     ContextCitation,
 )
+from app.services.guardrail_service import GuardrailService
 from app.services.llm_service import LLMService
-from app.services.rag_service import RagAnswer, RagService
-from app.services.retrieval_service import RetrievalService
+from app.services.rag_service import NO_ANSWER_MESSAGE, RagAnswer, RagService
+from app.services.retrieval_service import RetrievedChunk, RetrievalService
 from app.services.reranking_service import RerankingService
 
 
@@ -187,3 +188,129 @@ def test_answer_question_requires_reranking_service_when_enabled() -> None:
             question="Question",
             user_id=uuid.uuid4(),
         )
+
+
+def test_answer_question_falls_back_when_confidence_is_too_low() -> None:
+    retrieval_service = Mock(spec=RetrievalService)
+    retrieval_service.retrieve_relevant_chunks.return_value = [
+        RetrievedChunk(chunk=Mock(), distance=1.9),
+    ]
+    context_builder_service = Mock(spec=ContextBuilderService)
+    llm_service = Mock(spec=LLMService)
+
+    service = RagService(
+        retrieval_service=retrieval_service,
+        context_builder_service=context_builder_service,
+        llm_service=llm_service,
+        guardrail_service=GuardrailService(),
+        retrieval_min_confidence=0.5,
+    )
+
+    result = service.answer_question(
+        question="Unsupported question",
+        user_id=uuid.uuid4(),
+    )
+
+    assert result == RagAnswer(
+        answer=NO_ANSWER_MESSAGE,
+        context="",
+        citations=[],
+    )
+    context_builder_service.build_context.assert_not_called()
+    llm_service.generate_answer.assert_not_called()
+
+
+def test_answer_question_returns_only_citations_used_by_the_answer() -> None:
+    first_citation = ContextCitation(
+        source_number=1,
+        document_id=uuid.uuid4(),
+        chunk_id=uuid.uuid4(),
+        chunk_index=0,
+        page_number=1,
+        start_time_seconds=None,
+        end_time_seconds=None,
+        distance=0.1,
+    )
+    second_citation = ContextCitation(
+        source_number=2,
+        document_id=uuid.uuid4(),
+        chunk_id=uuid.uuid4(),
+        chunk_index=1,
+        page_number=2,
+        start_time_seconds=None,
+        end_time_seconds=None,
+        distance=0.2,
+    )
+    retrieval_service = Mock(spec=RetrievalService)
+    retrieval_service.retrieve_relevant_chunks.return_value = [Mock()]
+    context_builder_service = Mock(spec=ContextBuilderService)
+    context_builder_service.build_context.return_value = BuiltContext(
+        context="Context",
+        citations=[first_citation, second_citation],
+    )
+    llm_service = Mock(spec=LLMService)
+    llm_service.generate_answer.return_value = "Grounded answer [Source 2]."
+
+    service = RagService(
+        retrieval_service=retrieval_service,
+        context_builder_service=context_builder_service,
+        llm_service=llm_service,
+        guardrail_service=GuardrailService(),
+        citation_validation_enabled=True,
+    )
+
+    result = service.answer_question(
+        question="Question",
+        user_id=uuid.uuid4(),
+    )
+
+    assert result.answer == "Grounded answer [Source 2]."
+    assert result.citations == [second_citation]
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "Answer without a citation.",
+        "Answer with an invented citation [Source 99].",
+    ],
+)
+def test_answer_question_falls_back_for_invalid_citations(answer: str) -> None:
+    citation = ContextCitation(
+        source_number=1,
+        document_id=uuid.uuid4(),
+        chunk_id=uuid.uuid4(),
+        chunk_index=0,
+        page_number=1,
+        start_time_seconds=None,
+        end_time_seconds=None,
+        distance=0.1,
+    )
+    retrieval_service = Mock(spec=RetrievalService)
+    retrieval_service.retrieve_relevant_chunks.return_value = [Mock()]
+    context_builder_service = Mock(spec=ContextBuilderService)
+    context_builder_service.build_context.return_value = BuiltContext(
+        context="Context",
+        citations=[citation],
+    )
+    llm_service = Mock(spec=LLMService)
+    llm_service.generate_answer.return_value = answer
+
+    service = RagService(
+        retrieval_service=retrieval_service,
+        context_builder_service=context_builder_service,
+        llm_service=llm_service,
+        guardrail_service=GuardrailService(),
+        citation_validation_enabled=True,
+    )
+
+    result = service.answer_question(
+        question="Question",
+        user_id=uuid.uuid4(),
+    )
+
+    assert result == RagAnswer(
+        answer=NO_ANSWER_MESSAGE,
+        context="",
+        citations=[],
+    )

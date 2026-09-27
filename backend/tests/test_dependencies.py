@@ -10,6 +10,7 @@ from app.services.embedding_service import EmbeddingService
 from app.services.providers.nvidia_embedding_provider import NvidiaEmbeddingProvider
 from app.services.retrieval_service import RetrievalService
 from app.services.reranking_service import RerankingService
+from app.services.guardrail_service import GuardrailService
 from app.services.llm_service import LLMService
 from app.services.rag_service import RagService
 from app.services.providers.groq_llm_provider import GroqLLMProvider
@@ -166,6 +167,7 @@ def test_get_rag_service_builds_rag_service(monkeypatch) -> None:
     retrieval_service = Mock(spec=RetrievalService)
     llm_service = Mock(spec=LLMService)
     reranking_service = Mock(spec=RerankingService)
+    guardrail_service = Mock(spec=GuardrailService)
 
     monkeypatch.setattr(
         dependencies,
@@ -182,6 +184,11 @@ def test_get_rag_service_builds_rag_service(monkeypatch) -> None:
         "get_reranking_service",
         lambda: reranking_service,
     )
+    monkeypatch.setattr(
+        dependencies,
+        "get_guardrail_service",
+        lambda: guardrail_service,
+    )
 
     service = dependencies.get_rag_service(db=db)
 
@@ -192,3 +199,12 @@ def test_get_rag_service_builds_rag_service(monkeypatch) -> None:
     assert service.reranking_service is reranking_service
     assert service.reranker_enabled is dependencies.settings.reranker_enabled
     assert service.reranker_candidate_k == dependencies.settings.reranker_candidate_k
+    assert service.guardrail_service is guardrail_service
+    assert (
+        service.retrieval_min_confidence
+        == dependencies.settings.retrieval_min_confidence
+    )
+    assert (
+        service.citation_validation_enabled
+        is dependencies.settings.citation_validation_enabled
+    )

@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     hybrid_search_enabled: bool = False
     reranker_enabled: bool = False
     reranker_candidate_k: int = Field(default=20, ge=1, le=100)
+    retrieval_min_confidence: float = Field(default=0.05, ge=0.0, le=1.0)
+    citation_validation_enabled: bool = True
 
     upload_dir: str = "storage/uploads"
     temp_dir: str = "storage/temp"
