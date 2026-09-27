@@ -210,6 +210,31 @@ Upload PDF
 
 AskMeMind is intentionally retrieval-first. If no relevant document chunks are found, the system returns a fallback answer instead of asking the LLM to answer from general knowledge.
 
+## Evaluation
+
+Run the complete retrieval comparison from the backend directory:
+
+```bash
+python -m evaluation.run_evaluation
+```
+
+The command evaluates vector, PostgreSQL full-text, hybrid, and
+hybrid-plus-reranker retrieval. It writes per-method JSON, CSV, and Markdown
+reports plus comparison files to `backend/evaluation/reports/`. Retrieval
+reports include Hit@K, MRR, Recall@K, Precision@K, retrieval latency, and
+retrieved chunk count. Answer success is included when
+`RUN_ANSWER_EVALUATION` is enabled.
+
+The last successful pre-latency benchmark used 18 English and Vietnamese
+questions at `K=5`:
+
+| Method | Hit@5 | MRR | Recall@5 | Precision@5 | Latency |
+|---|---:|---:|---:|---:|---:|
+| Vector | 100.00% | 0.64 | 75.00% | 47.78% | Not captured |
+| PostgreSQL FTS | 11.11% | 0.11 | 5.56% | 11.11% | 9.93 ms |
+| Hybrid RRF | 100.00% | 0.71 | 75.00% | 47.78% | Not captured |
+| Hybrid + reranker | Pending provider availability | - | - | - | - |
+
 ## Project Structure
 
 ~~~text

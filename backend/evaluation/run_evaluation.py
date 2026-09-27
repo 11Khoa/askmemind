@@ -1,6 +1,10 @@
+import argparse
+import csv
 import json
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 from app.core.dependencies import get_llm_service, get_retrieval_service
@@ -26,10 +30,23 @@ from evaluation.evaluators.answer_evaluator import (
 DATASET_PATH = Path("evaluation/datasets/rag_eval.json")
 REPORTS_DIR = Path("evaluation/reports")
 BENCHMARK_PATH = REPORTS_DIR / "benchmark.md"
+BENCHMARK_CSV_PATH = REPORTS_DIR / "benchmark.csv"
 TOP_K = 5
 RUN_ANSWER_EVALUATION = False
 RERANKER_CANDIDATE_K = 20
 RETRIEVAL_METHODS = ("vector", "fts_search", "hybrid", "hybrid_reranked")
+
+
+@dataclass(frozen=True)
+class RetrievalSummary:
+    total: int
+    hit_count: int
+    hit_rate: float
+    mean_mrr: float
+    mean_recall_at_k: float
+    mean_precision_at_k: float
+    mean_latency_ms: float
+    mean_chunk_count: float
 
 
 def retrieve_chunks_by_method(
@@ -81,22 +98,29 @@ def retrieve_chunks_by_method(
     raise ValueError(f"Unsupported retrieval method: {method}")
 
 
-def main() -> None:
-    dataset = load_dataset(path=DATASET_PATH)
+def main(
+    dataset_path: Path = DATASET_PATH,
+    reports_dir: Path = REPORTS_DIR,
+    top_k: int = TOP_K,
+    methods: tuple[str, ...] = RETRIEVAL_METHODS,
+    run_answer_evaluation: bool = RUN_ANSWER_EVALUATION,
+) -> None:
+    dataset = load_dataset(path=dataset_path)
 
     db = SessionLocal()
     try:
         document_repository = DocumentRepository(db=db)
         retrieval_service = get_retrieval_service(db=db)
         reranking_service = RerankingService()
-        llm_service = get_llm_service() if RUN_ANSWER_EVALUATION else None
+        llm_service = get_llm_service() if run_answer_evaluation else None
         retrieval_evaluator = RetrievalEvaluator()
         context_builder_service = ContextBuilderService()
         citation_evaluator = CitationEvaluator()
-        answer_evaluator = AnswerEvaluator() if RUN_ANSWER_EVALUATION else None
+        answer_evaluator = AnswerEvaluator() if run_answer_evaluation else None
 
         benchmark_results: dict[str, list[RetrievalEvaluationResult]] = {}
-        for method in RETRIEVAL_METHODS:
+        benchmark_answer_results: dict[str, list[AnswerEvaluationResult]] = {}
+        for method in methods:
             print()
             print(f"=== Benchmark: {method} ===")
             results: list[RetrievalEvaluationResult] = []
@@ -120,6 +144,7 @@ def main() -> None:
                     )
                     continue
 
+                retrieval_started_at = perf_counter()
                 retrieval_chunks = retrieve_chunks_by_method(
                     retrieval_service=retrieval_service,
                     reranking_service=reranking_service,
@@ -127,8 +152,11 @@ def main() -> None:
                     query=test_case["question"],
                     user_id=user_id,
                     document_id=document.id,
-                    top_k=TOP_K,
+                    top_k=top_k,
                 )
+                retrieval_latency_ms = (
+                    perf_counter() - retrieval_started_at
+                ) * 1000
 
                 build_context = context_builder_service.build_context(
                     retrieved_chunks=retrieval_chunks,
@@ -139,6 +167,7 @@ def main() -> None:
                     question_language=test_case["question_language"],
                     expected_pages=test_case["expected_pages"],
                     retrieved_chunks=retrieval_chunks,
+                    latency_ms=retrieval_latency_ms,
                 )
 
                 citation_result = citation_evaluator.evaluate(
@@ -164,7 +193,7 @@ def main() -> None:
                 citation_integrity_results.append(citation_integrity_result)
                 print_citation_integrity_result(result=citation_integrity_result)
 
-                if RUN_ANSWER_EVALUATION:
+                if run_answer_evaluation:
                     assert llm_service is not None
                     assert answer_evaluator is not None
 
@@ -194,29 +223,43 @@ def main() -> None:
             print_summary(results=results)
             print_citation_summary(results=citation_results)
             print_citation_integrity_summary(results=citation_integrity_results)
-            if RUN_ANSWER_EVALUATION:
+            if run_answer_evaluation:
                 print_answer_summary(results=answer_results)
 
             write_json_report(
-                path=REPORTS_DIR / f"{method}.json",
-                dataset_path=DATASET_PATH,
-                top_k=TOP_K,
+                path=reports_dir / f"{method}.json",
+                dataset_path=dataset_path,
+                top_k=top_k,
                 results=results,
+                answer_results=answer_results,
+            )
+            write_csv_report(
+                path=reports_dir / f"{method}.csv",
+                results=results,
+                answer_results=answer_results,
             )
             write_markdown_report(
-                path=REPORTS_DIR / f"{method}.md",
-                dataset_path=DATASET_PATH,
-                top_k=TOP_K,
+                path=reports_dir / f"{method}.md",
+                dataset_path=dataset_path,
+                top_k=top_k,
                 retrieval_results=results,
                 citation_results=citation_results,
                 citation_integrity_results=citation_integrity_results,
             )
             benchmark_results[method] = results
+            benchmark_answer_results[method] = answer_results
 
         write_benchmark_comparison(
-            path=BENCHMARK_PATH,
-            top_k=TOP_K,
+            path=reports_dir / BENCHMARK_PATH.name,
+            top_k=top_k,
             benchmark_results=benchmark_results,
+            benchmark_answer_results=benchmark_answer_results,
+        )
+        write_benchmark_csv(
+            path=reports_dir / BENCHMARK_CSV_PATH.name,
+            top_k=top_k,
+            benchmark_results=benchmark_results,
+            benchmark_answer_results=benchmark_answer_results,
         )
     finally:
         db.close()
@@ -279,18 +322,58 @@ def calculate_summary(
     return total, hit_count, hit_rate, mean_mrr
 
 
+def calculate_retrieval_summary(
+    results: list[RetrievalEvaluationResult],
+) -> RetrievalSummary:
+    total = len(results)
+    if total == 0:
+        return RetrievalSummary(
+            total=0,
+            hit_count=0,
+            hit_rate=0.0,
+            mean_mrr=0.0,
+            mean_recall_at_k=0.0,
+            mean_precision_at_k=0.0,
+            mean_latency_ms=0.0,
+            mean_chunk_count=0.0,
+        )
+
+    hit_count = sum(1 for result in results if result.hit)
+    return RetrievalSummary(
+        total=total,
+        hit_count=hit_count,
+        hit_rate=hit_count / total,
+        mean_mrr=sum(result.mrr for result in results) / total,
+        mean_recall_at_k=(
+            sum(result.recall_at_k for result in results) / total
+        ),
+        mean_precision_at_k=(
+            sum(result.precision_at_k for result in results) / total
+        ),
+        mean_latency_ms=(
+            sum(result.latency_ms for result in results) / total
+        ),
+        mean_chunk_count=(
+            sum(result.retrieved_chunk_count for result in results) / total
+        ),
+    )
+
 def print_summary(results: list[RetrievalEvaluationResult]) -> None:
     if not results:
         print("No evaluation results.")
         return
 
-    total, _, hit_rate, mean_mrr = calculate_summary(results=results)
+    summary = calculate_retrieval_summary(results=results)
 
     print()
     print("Retrieval Summary")
-    print(f"Total: {total}")
-    print(f"Hit rate: {hit_rate:.2%}")
-    print(f"MRR: {mean_mrr:.2f}")
+    print(f"Total: {summary.total}")
+    print(f"Hit rate: {summary.hit_rate:.2%}")
+    print(f"MRR: {summary.mean_mrr:.2f}")
+    print(f"Recall@K: {summary.mean_recall_at_k:.2%}")
+    print(f"Precision@K: {summary.mean_precision_at_k:.2%}")
+    print(f"Mean latency: {summary.mean_latency_ms:.2f} ms")
+    print(f"Mean retrieved chunks: {summary.mean_chunk_count:.2f}")
 
 
 def print_citation_summary(results: list[CitationEvaluationResult]) -> None:
@@ -308,22 +391,28 @@ def write_json_report(
     dataset_path: Path,
     top_k: int,
     results: list[RetrievalEvaluationResult],
+    answer_results: list[AnswerEvaluationResult],
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    total = len(results)
-    hit_count = sum(1 for result in results if result.hit)
-    hit_rate = 0.0 if total == 0 else hit_count / total
-    mean_mrr = 0.0 if total == 0 else sum(
-        result.mrr for result in results) / total
+    summary = calculate_retrieval_summary(results=results)
+    answer_success_rate = (
+        None if not answer_results
+        else sum(result.passed for result in answer_results) / len(answer_results)
+    )
 
     report = {
         "dataset": str(dataset_path),
         "top_k": top_k,
-        "total": total,
-        "hit_count": hit_count,
-        "hit_rate": hit_rate,
-        "mrr": mean_mrr,
+        "total": summary.total,
+        "hit_count": summary.hit_count,
+        "hit_rate": summary.hit_rate,
+        "mrr": summary.mean_mrr,
+        "recall_at_k": summary.mean_recall_at_k,
+        "precision_at_k": summary.mean_precision_at_k,
+        "mean_latency_ms": summary.mean_latency_ms,
+        "mean_retrieved_chunk_count": summary.mean_chunk_count,
+        "answer_success_rate": answer_success_rate,
         "results": [
             {
                 "test_id": result.test_id,
@@ -334,6 +423,10 @@ def write_json_report(
                 "matched_pages": result.matched_pages,
                 "best_rank": result.best_rank,
                 "mrr": result.mrr,
+                "recall_at_k": result.recall_at_k,
+                "precision_at_k": result.precision_at_k,
+                "latency_ms": result.latency_ms,
+                "retrieved_chunk_count": result.retrieved_chunk_count,
             }
             for result in results
         ],
@@ -344,6 +437,58 @@ def write_json_report(
     print(f"Wrote JSON report to {path}")
 
 
+
+def write_csv_report(
+    path: Path,
+    results: list[RetrievalEvaluationResult],
+    answer_results: list[AnswerEvaluationResult],
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    answers_by_test_id = {
+        result.test_id: result for result in answer_results
+    }
+    fieldnames = [
+        "test_id",
+        "question_language",
+        "hit",
+        "expected_pages",
+        "retrieved_pages",
+        "matched_pages",
+        "best_rank",
+        "mrr",
+        "recall_at_k",
+        "precision_at_k",
+        "latency_ms",
+        "retrieved_chunk_count",
+        "answer_passed",
+    ]
+
+    with path.open("w", encoding="utf-8", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        for result in results:
+            answer_result = answers_by_test_id.get(result.test_id)
+            writer.writerow(
+                {
+                    "test_id": result.test_id,
+                    "question_language": result.question_language,
+                    "hit": result.hit,
+                    "expected_pages": json.dumps(result.expected_pages),
+                    "retrieved_pages": json.dumps(result.retrieved_pages),
+                    "matched_pages": json.dumps(result.matched_pages),
+                    "best_rank": result.best_rank,
+                    "mrr": result.mrr,
+                    "recall_at_k": result.recall_at_k,
+                    "precision_at_k": result.precision_at_k,
+                    "latency_ms": result.latency_ms,
+                    "retrieved_chunk_count": result.retrieved_chunk_count,
+                    "answer_passed": (
+                        "" if answer_result is None else answer_result.passed
+                    ),
+                }
+            )
+
+    print(f"Wrote CSV report to {path}")
 def print_citation_integrity_summary(
     results: list[CitationIntegrityEvaluationResult],
 ) -> None:
@@ -387,9 +532,7 @@ def write_markdown_report(
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    retrieval_total, _, retrieval_hit_rate, retrieval_mrr = (
-        calculate_summary(results=retrieval_results)
-    )
+    retrieval_summary = calculate_retrieval_summary(results=retrieval_results)
 
     citation_total, _, citation_hit_rate, citation_mrr = (
         calculate_summary(results=citation_results)
@@ -407,11 +550,14 @@ def write_markdown_report(
         "",
         "## Summary",
         "",
-        "| Metric | Total | Pass/Hit Rate | MRR |",
-        "|---|---:|---:|---:|",
-        f"| Retrieval | {retrieval_total} | {retrieval_hit_rate:.2%} | {retrieval_mrr:.2f} |",
-        f"| Citation Relevance | {citation_total} | {citation_hit_rate:.2%} | {citation_mrr:.2f} |",
-        f"| Citation Integrity | {integrity_total} | {integrity_pass_rate:.2%} | - |",
+        "| Metric | Total | Pass/Hit Rate | MRR | Recall@K | Precision@K | Mean Latency |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+        "| Retrieval "
+        f"| {retrieval_summary.total} | {retrieval_summary.hit_rate:.2%} "
+        f"| {retrieval_summary.mean_mrr:.2f} | {retrieval_summary.mean_recall_at_k:.2%} "
+        f"| {retrieval_summary.mean_precision_at_k:.2%} | {retrieval_summary.mean_latency_ms:.2f} ms |",
+        f"| Citation Relevance | {citation_total} | {citation_hit_rate:.2%} | {citation_mrr:.2f} | - | - | - |",
+        f"| Citation Integrity | {integrity_total} | {integrity_pass_rate:.2%} | - | - | - | - |",
         "",
     ]
 
@@ -433,8 +579,8 @@ def write_markdown_report(
         [
             "## Retrieval Results",
             "",
-            "| Test ID | Language | Status | Expected Pages | Retrieved Pages | Matched Pages | Best Rank | MRR |",
-            "|---|---|---|---|---|---|---:|---:|",
+            "| Test ID | Language | Status | Expected Pages | Retrieved Pages | Matched Pages | Best Rank | MRR | Recall@K | Precision@K | Latency | Chunks |",
+            "|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|",
         ]
     )
 
@@ -449,7 +595,11 @@ def write_markdown_report(
             f"{format_pages(result.retrieved_pages)} | "
             f"{format_pages(result.matched_pages)} | "
             f"{format_optional_rank(result.best_rank)} | "
-            f"{result.mrr:.2f} |"
+            f"{result.mrr:.2f} | "
+            f"{result.recall_at_k:.2%} | "
+            f"{result.precision_at_k:.2%} | "
+            f"{result.latency_ms:.2f} ms | "
+            f"{result.retrieved_chunk_count} |"
         )
 
     lines.append("")
@@ -513,19 +663,29 @@ def write_benchmark_comparison(
     path: Path,
     top_k: int,
     benchmark_results: dict[str, list[RetrievalEvaluationResult]],
+    benchmark_answer_results: dict[str, list[AnswerEvaluationResult]],
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
     lines = [
         "# Benchmark Comparison",
         "",
-        f"| Method | Total | Hit@{top_k} | MRR |",
-        "|---|---:|---:|---:|",
+        f"| Method | Total | Hit@{top_k} | MRR | Recall@{top_k} | Precision@{top_k} | Mean Latency | Mean Chunks | Answer Success |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for method, results in benchmark_results.items():
-        total, _, hit_rate, mean_mrr = calculate_summary(results=results)
+        summary = calculate_retrieval_summary(results=results)
+        answer_results = benchmark_answer_results.get(method, [])
+        answer_success = (
+            "-"
+            if not answer_results
+            else f"{sum(result.passed for result in answer_results) / len(answer_results):.2%}"
+        )
         lines.append(
-            f"| {method} | {total} | {hit_rate:.2%} | {mean_mrr:.2f} |"
+            f"| {method} | {summary.total} | {summary.hit_rate:.2%} "
+            f"| {summary.mean_mrr:.2f} | {summary.mean_recall_at_k:.2%} "
+            f"| {summary.mean_precision_at_k:.2%} | {summary.mean_latency_ms:.2f} ms "
+            f"| {summary.mean_chunk_count:.2f} | {answer_success} |"
         )
 
     lines.append("")
@@ -535,6 +695,55 @@ def write_benchmark_comparison(
     print(f"Wrote benchmark comparison to {path}")
 
 
+
+def write_benchmark_csv(
+    path: Path,
+    top_k: int,
+    benchmark_results: dict[str, list[RetrievalEvaluationResult]],
+    benchmark_answer_results: dict[str, list[AnswerEvaluationResult]],
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = [
+        "method",
+        "top_k",
+        "total",
+        "hit_rate",
+        "mrr",
+        "recall_at_k",
+        "precision_at_k",
+        "mean_latency_ms",
+        "mean_retrieved_chunk_count",
+        "answer_success_rate",
+    ]
+
+    with path.open("w", encoding="utf-8", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        for method, results in benchmark_results.items():
+            summary = calculate_retrieval_summary(results=results)
+            answer_results = benchmark_answer_results.get(method, [])
+            answer_success_rate = (
+                ""
+                if not answer_results
+                else sum(result.passed for result in answer_results)
+                / len(answer_results)
+            )
+            writer.writerow(
+                {
+                    "method": method,
+                    "top_k": top_k,
+                    "total": summary.total,
+                    "hit_rate": summary.hit_rate,
+                    "mrr": summary.mean_mrr,
+                    "recall_at_k": summary.mean_recall_at_k,
+                    "precision_at_k": summary.mean_precision_at_k,
+                    "mean_latency_ms": summary.mean_latency_ms,
+                    "mean_retrieved_chunk_count": summary.mean_chunk_count,
+                    "answer_success_rate": answer_success_rate,
+                }
+            )
+
+    print(f"Wrote benchmark CSV to {path}")
 def calculate_integrity_summary(
     results: list[CitationIntegrityEvaluationResult],
 ) -> tuple[int, int, float]:
@@ -602,5 +811,56 @@ def build_language_summary_lines(
     return lines
 
 
+def positive_int(value: str) -> int:
+    parsed_value = int(value)
+    if parsed_value < 1:
+        raise argparse.ArgumentTypeError("value must be at least 1")
+    return parsed_value
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Evaluate and compare AskMeMind retrieval methods.",
+    )
+    parser.add_argument(
+        "--dataset",
+        type=Path,
+        default=DATASET_PATH,
+        help="Path to the evaluation dataset.",
+    )
+    parser.add_argument(
+        "--reports-dir",
+        type=Path,
+        default=REPORTS_DIR,
+        help="Directory for JSON, CSV, and Markdown reports.",
+    )
+    parser.add_argument(
+        "--top-k",
+        type=positive_int,
+        default=TOP_K,
+        help="Number of final chunks to evaluate.",
+    )
+    parser.add_argument(
+        "--methods",
+        nargs="+",
+        choices=RETRIEVAL_METHODS,
+        default=list(RETRIEVAL_METHODS),
+        help="Retrieval methods to compare.",
+    )
+    parser.add_argument(
+        "--with-answers",
+        action="store_true",
+        help="Call the LLM and include answer success metrics.",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    main()
+    arguments = parse_args()
+    main(
+        dataset_path=arguments.dataset,
+        reports_dir=arguments.reports_dir,
+        top_k=arguments.top_k,
+        methods=tuple(arguments.methods),
+        run_answer_evaluation=arguments.with_answers,
+    )

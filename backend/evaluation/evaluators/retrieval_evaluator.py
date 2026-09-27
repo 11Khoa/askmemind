@@ -14,6 +14,10 @@ class RetrievalEvaluationResult:
     matched_pages: list[int]
     best_rank: int | None
     mrr: float
+    recall_at_k: float
+    precision_at_k: float
+    latency_ms: float
+    retrieved_chunk_count: int
 
 
 class RetrievalEvaluator:
@@ -23,6 +27,7 @@ class RetrievalEvaluator:
         question_language: str,
         expected_pages: list[int],
         retrieved_chunks: list[RetrievedChunk],
+        latency_ms: float = 0.0,
     ) -> RetrievalEvaluationResult:
         retrieved_pages = [
             retrieved_chunk.chunk.page_number
@@ -34,6 +39,15 @@ class RetrievalEvaluator:
             for page in retrieved_pages
             if page in expected_pages
         ]
+
+        expected_page_set = set(expected_pages)
+        matched_page_set = set(matched_pages)
+        recall_at_k = (
+            len(matched_page_set) / len(expected_page_set)
+            if expected_page_set
+            else 0.0
+        )
+        precision_at_k = len(matched_pages) / len(retrieved_pages) if retrieved_pages else 0.0
 
         best_rank = find_best_rank(
             expected_pages=expected_pages,
@@ -50,4 +64,8 @@ class RetrievalEvaluator:
             matched_pages=matched_pages,
             best_rank=best_rank,
             mrr=mrr,
+            recall_at_k=recall_at_k,
+            precision_at_k=precision_at_k,
+            latency_ms=latency_ms,
+            retrieved_chunk_count=len(retrieved_chunks),
         )
