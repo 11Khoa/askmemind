@@ -54,4 +54,4 @@ jobs:
 
       - name: Run tests
         working-directory: backend
-        run: python -m pytest backend/tests --tb=short -q
+        run: python -m pytest tests --tb=short -q
