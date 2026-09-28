@@ -7,9 +7,10 @@ def test_default_embedding_settings_match_current_vector_schema() -> None:
         secret_key="test-secret",
     )
     assert settings.embedding_provider == "nvidia"
-    assert settings.embedding_model == "nvidia/llama-nemotron-embed-1b-v2"
+    assert settings.embedding_model == "nvidia/nemotron-3-embed-1b"
     assert settings.embedding_base_url == "https://integrate.api.nvidia.com/v1"
-    assert settings.embedding_dimensions == 1024
+    assert settings.embedding_dimensions == 2048
+    assert settings.embedding_v2_enabled is False
     assert settings.reranker_enabled is False
     assert settings.reranker_candidate_k == 20
     assert settings.retrieval_min_confidence == 0.05

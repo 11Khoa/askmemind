@@ -26,6 +26,12 @@ class ChunkRepository:
                 start_char=chunk_data.get("start_char"),
                 end_char=chunk_data.get("end_char"),
                 start_time_seconds=chunk_data.get("start_time_seconds"),
+                embedding_v2=chunk_data.get("embedding_v2"),
+                embedding_v2_provider=chunk_data.get("embedding_v2_provider"),
+                embedding_v2_model=chunk_data.get("embedding_v2_model"),
+                embedding_v2_dimensions=chunk_data.get(
+                    "embedding_v2_dimensions"
+                ),
                 end_time_seconds=chunk_data.get("end_time_seconds"),
                 embedding=chunk_data.get("embedding"),
                 embedding_provider=chunk_data.get("embedding_provider"),
@@ -69,15 +75,17 @@ class ChunkRepository:
         user_id: uuid.UUID,
         document_id: uuid.UUID | None = None,
         top_k: int = 5,
+        use_v2: bool = False,
     ) -> list[tuple[Chunk, float]]:
-        distance = Chunk.embedding.cosine_distance(embedding).label("distance")
+        embedding_column = Chunk.embedding_v2 if use_v2 else Chunk.embedding
+        distance = embedding_column.cosine_distance(embedding).label("distance")
 
         statement = (
             select(Chunk, distance)
             .join(Document, Chunk.document_id == Document.id)
             .where(
                 Document.user_id == user_id,
-                Chunk.embedding.is_not(None),
+                embedding_column.is_not(None),
             )
         )
 

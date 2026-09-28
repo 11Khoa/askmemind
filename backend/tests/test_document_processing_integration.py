@@ -61,10 +61,10 @@ def test_document_processing_pipeline_persists_pdf_chunks(
     embedding_service = Mock(spec=EmbeddingService)
     embedding_service.embedding_provider = "test-provider"
     embedding_service.embedding_model = "test-model"
-    embedding_service.embedding_dimensions = 1024
+    embedding_service.embedding_dimensions = 2048
     embedding_service.embed_passages.return_value = [
-        [0.1] * 1024,
-        [0.2] * 1024,
+        [0.1] * 2048,
+        [0.2] * 2048,
     ]
 
     processing_service = DocumentProcessingService(
@@ -104,17 +104,20 @@ def test_document_processing_pipeline_persists_pdf_chunks(
     ]
     assert [chunk.start_char for chunk in persisted_chunks] == [0, 0]
     assert [chunk.end_char for chunk in persisted_chunks] == [21, 21]
-    assert [chunk.embedding_provider for chunk in persisted_chunks] == [
+    assert [chunk.embedding_v2_provider for chunk in persisted_chunks] == [
         "test-provider",
         "test-provider",
     ]
-    assert [chunk.embedding_model for chunk in persisted_chunks] == [
+    assert [chunk.embedding_v2_model for chunk in persisted_chunks] == [
         "test-model",
         "test-model",
     ]
-    assert [chunk.embedding_dimensions for chunk in persisted_chunks] == [1024, 1024]
-    assert list(persisted_chunks[0].embedding) == [0.1] * 1024
-    assert list(persisted_chunks[1].embedding) == [0.2] * 1024
+    assert [
+        chunk.embedding_v2_dimensions for chunk in persisted_chunks
+    ] == [2048, 2048]
+    assert list(persisted_chunks[0].embedding_v2) == [0.1] * 2048
+    assert list(persisted_chunks[1].embedding_v2) == [0.2] * 2048
+    assert all(chunk.embedding is None for chunk in persisted_chunks)
 
     persisted_document = db_session.get(Document, source_document.id)
 

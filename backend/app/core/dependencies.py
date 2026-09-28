@@ -164,6 +164,7 @@ def get_retrieval_service(
         embedding_service=embedding_service,
         chunk_repository=chunk_repository,
         hybrid_search_enabled=settings.hybrid_search_enabled,
+        embedding_v2_enabled=settings.embedding_v2_enabled,
     )
 
 

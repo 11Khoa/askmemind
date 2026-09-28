@@ -96,6 +96,26 @@ class Chunk(Base):
         nullable=True,
     )
 
+    embedding_v2: Mapped[list[float] | None] = mapped_column(
+        Vector(2048),
+        nullable=True,
+    )
+
+    embedding_v2_model: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+
+    embedding_v2_provider: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+
+    embedding_v2_dimensions: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
     chunk_metadata: Mapped[dict | None] = mapped_column(
         JSONB,
         nullable=True,

@@ -465,3 +465,55 @@ def test_search_similar_chunks_searches_all_documents_for_one_user(
         "First user first document chunk",
         "First user second document chunk",
     ]
+
+
+def make_v2_embedding(index: int) -> list[float]:
+    embedding = [0.0] * 2048
+    embedding[index] = 1.0
+    return embedding
+
+
+def test_search_similar_chunks_can_use_embedding_v2(
+    db_session: Session,
+) -> None:
+    user = User(
+        email="chunk-vector-v2@gmail.com",
+        hashed_password="hashed",
+    )
+    document = Document(
+        filename="vector-v2.pdf",
+        original_filename="vector-v2.pdf",
+        file_path="/tmp/vector-v2.pdf",
+        content_type="application/pdf",
+        file_size_bytes=500,
+    )
+    user.documents.append(document)
+    db_session.add(user)
+    db_session.flush()
+
+    repository = ChunkRepository(db_session)
+    repository.create_chunks(
+        document_id=document.id,
+        chunks_data=[
+            {
+                "chunk_index": 0,
+                "content": "V2 relevant chunk",
+                "embedding_v2": make_v2_embedding(0),
+                "embedding_v2_provider": "nvidia",
+                "embedding_v2_model": "nvidia/nemotron-3-embed-1b",
+                "embedding_v2_dimensions": 2048,
+            },
+        ],
+    )
+
+    results = repository.search_similar_chunks(
+        embedding=make_v2_embedding(0),
+        user_id=user.id,
+        top_k=1,
+        use_v2=True,
+    )
+
+    assert len(results) == 1
+    assert results[0][0].content == "V2 relevant chunk"
+    assert results[0][0].embedding_v2_dimensions == 2048
+    assert results[0][1] == 0

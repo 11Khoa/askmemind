@@ -1,4 +1,5 @@
 import uuid
+from math import isclose
 from unittest.mock import Mock
 
 from app.repositories.chunk_repository import ChunkRepository
@@ -26,6 +27,7 @@ def test_retrieve_relevant_chunks_embeds_query_and_searches_chunks() -> None:
     service = RetrievalService(
         embedding_service=embedding_service,
         chunk_repository=chunk_repository,
+        embedding_v2_enabled=True,
     )
 
     result = service.retrieve_relevant_chunks(
@@ -44,6 +46,7 @@ def test_retrieve_relevant_chunks_embeds_query_and_searches_chunks() -> None:
         user_id=user_id,
         document_id=document_id,
         top_k=2,
+        use_v2=True,
     )
 
     assert result == [
@@ -68,6 +71,7 @@ def test_retrieve_relevant_chunks_can_search_all_user_documents() -> None:
     service = RetrievalService(
         embedding_service=embedding_service,
         chunk_repository=chunk_repository,
+        embedding_v2_enabled=True,
     )
 
     results = service.retrieve_relevant_chunks(
@@ -118,6 +122,7 @@ def test_vector_search_embeds_query_and_searches_chunks() -> None:
         user_id=user_id,
         document_id=document_id,
         top_k=5,
+        use_v2=True,
     )
     assert results == [
         RetrievedChunk(chunk=first_chunk, distance=0.12),
@@ -177,6 +182,7 @@ def test_hybrid_search_fuses_vector_and_fts_rankings() -> None:
     service = RetrievalService(
         embedding_service=embedding_service,
         chunk_repository=chunk_repository,
+        embedding_v2_enabled=True,
     )
 
     service.vector_search = Mock(return_value=[
@@ -210,6 +216,12 @@ def test_hybrid_search_fuses_vector_and_fts_rankings() -> None:
     )
     assert [result.chunk for result in results] == [chunk_b, chunk_a]
     assert all(result.score is not None for result in results)
+    assert results[0].score is not None
+    assert results[1].score is not None
+    assert 0.9 < results[0].score <= 1.0
+    assert isclose(results[1].score, 0.6)
+    assert results[0].score >= results[1].score
+    assert all(0.0 <= result.score <= 1.0 for result in results)
 
 
 def test_retrieve_relevant_chunks_uses_hybrid_search_when_enabled() -> None:
@@ -232,6 +244,7 @@ def test_retrieve_relevant_chunks_uses_hybrid_search_when_enabled() -> None:
         embedding_service=embedding_service,
         chunk_repository=chunk_repository,
         hybrid_search_enabled=True,
+        embedding_v2_enabled=True,
     )
 
     service.hybrid_search = Mock(return_value=expected_results)
@@ -251,4 +264,44 @@ def test_retrieve_relevant_chunks_uses_hybrid_search_when_enabled() -> None:
         top_k=5,
     )
     service.vector_search.assert_not_called()
+    assert results == expected_results
+
+
+def test_retrieve_relevant_chunks_uses_fts_until_embedding_v2_is_enabled() -> None:
+    user_id = uuid.uuid4()
+    document_id = uuid.uuid4()
+    chunk = Mock(id=uuid.uuid4())
+    expected_results = [
+        RetrievedChunk(chunk=chunk, distance=None, score=0.8),
+    ]
+
+    embedding_service = Mock(spec=EmbeddingService)
+    chunk_repository = Mock(spec=ChunkRepository)
+    service = RetrievalService(
+        embedding_service=embedding_service,
+        chunk_repository=chunk_repository,
+        hybrid_search_enabled=True,
+        embedding_v2_enabled=False,
+    )
+    service.fts_search = Mock(return_value=expected_results)
+    service.vector_search = Mock()
+    service.hybrid_search = Mock()
+
+    results = service.retrieve_relevant_chunks(
+        query="legacy-safe query",
+        user_id=user_id,
+        document_id=document_id,
+        top_k=5,
+    )
+
+    service.fts_search.assert_called_once_with(
+        query="legacy-safe query",
+        user_id=user_id,
+        document_id=document_id,
+        top_k=5,
+    )
+    service.vector_search.assert_not_called()
+    service.hybrid_search.assert_not_called()
+    embedding_service.embed_query.assert_not_called()
+    assert service.active_method == "fts"
     assert results == expected_results

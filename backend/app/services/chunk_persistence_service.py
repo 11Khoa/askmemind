@@ -30,10 +30,10 @@ class ChunkPersistenceService:
                 "end_char": text_chunk.end_char,
                 "start_time_seconds": text_chunk.start_time_seconds,
                 "end_time_seconds": text_chunk.end_time_seconds,
-                "embedding": embedding,
-                "embedding_provider": embedding_provider,
-                "embedding_model": embedding_model,
-                "embedding_dimensions": embedding_dimensions,
+                "embedding_v2": embedding,
+                "embedding_v2_provider": embedding_provider,
+                "embedding_v2_model": embedding_model,
+                "embedding_v2_dimensions": embedding_dimensions,
                 "chunk_metadata": dict(text_chunk.metadata),
             }
             for text_chunk, embedding in zip(text_chunks, embeddings)
