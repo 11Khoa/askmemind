@@ -31,6 +31,7 @@ from app.services.rag_service import RagService
 from app.models.user import User
 from app.core.config import settings
 from app.core.security import decode_access_token
+from app.core.logging import bind_user_id
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
@@ -81,6 +82,7 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    bind_user_id(user.id)
     return user
 
 

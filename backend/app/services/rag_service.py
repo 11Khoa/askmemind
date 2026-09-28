@@ -1,6 +1,9 @@
+import logging
 import uuid
 from dataclasses import dataclass
+from time import perf_counter
 
+from app.core.logging import log_event
 from app.services.context_builder_service import (
     ContextBuilderService,
     ContextCitation,
@@ -9,6 +12,8 @@ from app.services.guardrail_service import GuardrailService
 from app.services.llm_service import LLMService
 from app.services.retrieval_service import RetrievalService
 from app.services.reranking_service import RerankingService
+
+logger = logging.getLogger(__name__)
 
 
 NO_ANSWER_MESSAGE = "I do not know based on the uploaded documents."
@@ -51,29 +56,63 @@ class RagService:
         document_id: uuid.UUID | None = None,
         top_k: int = 3,
     ) -> RagAnswer:
+        total_started_at = perf_counter()
         retrieval_limit = (
             max(top_k, self.reranker_candidate_k)
             if self.reranker_enabled
             else top_k
         )
+        retrieval_started_at = perf_counter()
         retrieved_chunks = self.retrieval_service.retrieve_relevant_chunks(
             query=question,
             user_id=user_id,
             document_id=document_id,
             top_k=retrieval_limit,
         )
+        retrieval_latency_ms = (perf_counter() - retrieval_started_at) * 1000
+        candidate_count = len(retrieved_chunks)
+        log_event(
+            logger,
+            logging.INFO,
+            "rag.retrieval.completed",
+            retrieval_method=self.retrieval_service.active_method,
+            retrieval_latency_ms=round(retrieval_latency_ms, 2),
+            retrieved_chunks=candidate_count,
+            candidate_limit=retrieval_limit,
+        )
         if not retrieved_chunks:
-            return self._no_answer()
-
+            return self._fallback(
+                reason="no_context",
+                total_started_at=total_started_at,
+                retrieved_chunks=0,
+            )
         if self.reranker_enabled:
             if self.reranking_service is None:
                 raise RuntimeError(
                     "RerankingService is required when reranking is enabled"
                 )
+            reranking_started_at = perf_counter()
             retrieved_chunks = self.reranking_service.rerank(
                 query=question,
                 retrieved_chunks=retrieved_chunks,
                 top_k=top_k,
+            )
+            reranking_latency_ms = (
+                perf_counter() - reranking_started_at
+            ) * 1000
+            log_event(
+                logger,
+                logging.INFO,
+                "rag.reranking.completed",
+                reranking_latency_ms=round(reranking_latency_ms, 2),
+                reranked_chunks=len(retrieved_chunks),
+            )
+
+        best_confidence: float | None = None
+        if self.guardrail_service is not None:
+            best_confidence = max(
+                self.guardrail_service.calculate_confidence(result)
+                for result in retrieved_chunks
             )
 
         if self.retrieval_min_confidence > 0:
@@ -82,15 +121,29 @@ class RagService:
                 retrieved_chunks=retrieved_chunks,
                 minimum_confidence=self.retrieval_min_confidence,
             ):
-                return self._no_answer()
+                return self._fallback(
+                    reason="low_confidence",
+                    total_started_at=total_started_at,
+                    retrieved_chunks=len(retrieved_chunks),
+                    best_confidence=best_confidence,
+                )
 
         built_context = self.context_builder_service.build_context(
             retrieved_chunks=retrieved_chunks,
         )
 
+        llm_started_at = perf_counter()
         answer = self.llm_service.generate_answer(
             question=question,
             context=built_context.context,
+        )
+        llm_latency_ms = (perf_counter() - llm_started_at) * 1000
+        log_event(
+            logger,
+            logging.INFO,
+            "rag.llm.completed",
+            llm_latency_ms=round(llm_latency_ms, 2),
+            answer_characters=len(answer),
         )
 
         citations = built_context.citations
@@ -101,17 +154,59 @@ class RagService:
                 citations=citations,
             )
             if not validation.valid:
-                return self._no_answer()
+                return self._fallback(
+                    reason="invalid_citations",
+                    total_started_at=total_started_at,
+                    retrieved_chunks=len(retrieved_chunks),
+                    best_confidence=best_confidence,
+                    citation_errors=list(validation.errors),
+                )
             citations = guardrail_service.select_cited_context(
                 citations=citations,
                 cited_source_numbers=validation.cited_source_numbers,
             )
+
+        total_latency_ms = (perf_counter() - total_started_at) * 1000
+        log_event(
+            logger,
+            logging.INFO,
+            "rag.completed",
+            retrieval_method=self.retrieval_service.active_method,
+            total_latency_ms=round(total_latency_ms, 2),
+            retrieved_chunks=candidate_count,
+            final_chunks=len(retrieved_chunks),
+            best_confidence=best_confidence,
+            fallback=False,
+        )
 
         return RagAnswer(
             answer=answer,
             context=built_context.context,
             citations=citations,
         )
+
+    def _fallback(
+        self,
+        reason: str,
+        total_started_at: float,
+        retrieved_chunks: int,
+        best_confidence: float | None = None,
+        citation_errors: list[str] | None = None,
+    ) -> RagAnswer:
+        total_latency_ms = (perf_counter() - total_started_at) * 1000
+        log_event(
+            logger,
+            logging.WARNING,
+            "rag.fallback",
+            retrieval_method=self.retrieval_service.active_method,
+            total_latency_ms=round(total_latency_ms, 2),
+            retrieved_chunks=retrieved_chunks,
+            best_confidence=best_confidence,
+            fallback=True,
+            fallback_reason=reason,
+            citation_errors=citation_errors or [],
+        )
+        return self._no_answer()
 
     def _require_guardrail_service(self) -> GuardrailService:
         if self.guardrail_service is None:

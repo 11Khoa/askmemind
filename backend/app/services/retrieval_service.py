@@ -128,6 +128,11 @@ class RetrievalService:
             for chunk_id in ranked_chunk_ids[:top_k]
         ]
 
+    @property
+    def active_method(self) -> str:
+        return "hybrid" if self.hybrid_search_enabled else "vector"
+
+
     def retrieve_relevant_chunks(
         self,
         query: str,

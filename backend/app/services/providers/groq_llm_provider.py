@@ -1,6 +1,11 @@
+import logging
 from typing import Any
 
 import httpx
+
+from app.core.logging import log_event
+
+logger = logging.getLogger(__name__)
 
 
 class GroqLLMProvider:
@@ -58,5 +63,16 @@ class GroqLLMProvider:
         response.raise_for_status()
 
         payload: dict[str, Any] = response.json()
+        usage = payload.get("usage", {})
+        log_event(
+            logger,
+            logging.INFO,
+            "llm.provider.completed",
+            provider="groq",
+            model=self.model,
+            prompt_tokens=usage.get("prompt_tokens"),
+            completion_tokens=usage.get("completion_tokens"),
+            total_tokens=usage.get("total_tokens"),
+        )
 
         return payload["choices"][0]["message"]["content"]

@@ -19,7 +19,9 @@ class FakeResponse:
         return self.payload
 
 
-def test_generate_answer_sends_chat_completion_request(monkeypatch) -> None:
+def test_generate_answer_sends_chat_completion_request(
+    monkeypatch, caplog,
+) -> None:
     captured_request: dict[str, Any] = {}
 
     def fake_post(
@@ -42,6 +44,11 @@ def test_generate_answer_sends_chat_completion_request(monkeypatch) -> None:
                         },
                     },
                 ],
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 20,
+                    "total_tokens": 120,
+                },
             }
         )
 
@@ -87,3 +94,9 @@ def test_generate_answer_sends_chat_completion_request(monkeypatch) -> None:
     assert user_message["content"].endswith(
         "Question:\nWhat is the refund policy?"
     )
+    usage_record = next(
+        record for record in caplog.records
+        if record.getMessage() == "llm.provider.completed"
+    )
+    assert usage_record.event_data["total_tokens"] == 120
+    assert usage_record.event_data["model"] == "openai/gpt-oss-120b"

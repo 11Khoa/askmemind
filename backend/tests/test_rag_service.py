@@ -190,7 +190,9 @@ def test_answer_question_requires_reranking_service_when_enabled() -> None:
         )
 
 
-def test_answer_question_falls_back_when_confidence_is_too_low() -> None:
+def test_answer_question_falls_back_when_confidence_is_too_low(
+    caplog,
+) -> None:
     retrieval_service = Mock(spec=RetrievalService)
     retrieval_service.retrieve_relevant_chunks.return_value = [
         RetrievedChunk(chunk=Mock(), distance=1.9),
@@ -218,6 +220,12 @@ def test_answer_question_falls_back_when_confidence_is_too_low() -> None:
     )
     context_builder_service.build_context.assert_not_called()
     llm_service.generate_answer.assert_not_called()
+    fallback_record = next(
+        record for record in caplog.records
+        if record.getMessage() == "rag.fallback"
+    )
+    assert fallback_record.event_data["fallback_reason"] == "low_confidence"
+    assert fallback_record.event_data["fallback"] is True
 
 
 def test_answer_question_returns_only_citations_used_by_the_answer() -> None:
@@ -242,7 +250,9 @@ def test_answer_question_returns_only_citations_used_by_the_answer() -> None:
         distance=0.2,
     )
     retrieval_service = Mock(spec=RetrievalService)
-    retrieval_service.retrieve_relevant_chunks.return_value = [Mock()]
+    retrieval_service.retrieve_relevant_chunks.return_value = [
+        RetrievedChunk(chunk=Mock(), distance=0.1),
+    ]
     context_builder_service = Mock(spec=ContextBuilderService)
     context_builder_service.build_context.return_value = BuiltContext(
         context="Context",
@@ -287,7 +297,9 @@ def test_answer_question_falls_back_for_invalid_citations(answer: str) -> None:
         distance=0.1,
     )
     retrieval_service = Mock(spec=RetrievalService)
-    retrieval_service.retrieve_relevant_chunks.return_value = [Mock()]
+    retrieval_service.retrieve_relevant_chunks.return_value = [
+        RetrievedChunk(chunk=Mock(), distance=0.1),
+    ]
     context_builder_service = Mock(spec=ContextBuilderService)
     context_builder_service.build_context.return_value = BuiltContext(
         context="Context",
