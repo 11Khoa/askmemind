@@ -3,6 +3,7 @@ import uuid
 from dataclasses import dataclass
 from time import perf_counter
 
+from app.agents.retrieval_agent import RetrievalAgent
 from app.core.logging import log_event
 from app.services.context_builder_service import (
     ContextBuilderService,
@@ -38,6 +39,8 @@ class RagService:
         guardrail_service: GuardrailService | None = None,
         retrieval_min_confidence: float = 0.0,
         citation_validation_enabled: bool = False,
+        retrieval_agent: RetrievalAgent | None = None,
+        agentic_retrieval_enabled: bool = False,
     ) -> None:
         self.retrieval_service = retrieval_service
         self.context_builder_service = context_builder_service
@@ -49,6 +52,8 @@ class RagService:
         self.retrieval_min_confidence = retrieval_min_confidence
         self.citation_validation_enabled = citation_validation_enabled
 
+        self.retrieval_agent = retrieval_agent
+        self.agentic_retrieval_enabled = agentic_retrieval_enabled
     def answer_question(
         self,
         question: str,
@@ -63,12 +68,37 @@ class RagService:
             else top_k
         )
         retrieval_started_at = perf_counter()
-        retrieved_chunks = self.retrieval_service.retrieve_relevant_chunks(
-            query=question,
-            user_id=user_id,
-            document_id=document_id,
-            top_k=retrieval_limit,
-        )
+        if self.agentic_retrieval_enabled:
+            if self.retrieval_agent is None:
+                raise RuntimeError(
+                    "RetrievalAgent is required when agentic retrieval is enabled"
+                )
+            agent_result = self.retrieval_agent.retrieve(
+                question=question,
+                user_id=user_id,
+                document_id=document_id,
+                top_k=retrieval_limit,
+            )
+            retrieved_chunks = agent_result.chunks
+            log_event(
+                logger,
+                logging.INFO,
+                "rag.agent.completed",
+                retry_count=agent_result.state.retry_count,
+                rewritten_query=agent_result.state.rewritten_query,
+                retrieval_score=round(
+                    agent_result.state.retrieval_score,
+                    4,
+                ),
+                decisions=agent_result.state.decisions,
+            )
+        else:
+            retrieved_chunks = self.retrieval_service.retrieve_relevant_chunks(
+                query=question,
+                user_id=user_id,
+                document_id=document_id,
+                top_k=retrieval_limit,
+            )
         retrieval_latency_ms = (perf_counter() - retrieval_started_at) * 1000
         candidate_count = len(retrieved_chunks)
         log_event(

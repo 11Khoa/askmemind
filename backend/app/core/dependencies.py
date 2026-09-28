@@ -6,6 +6,11 @@ from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
+from app.agents.retrieval_agent import (
+    KeywordQueryRewriteTool,
+    RetrievalAgent,
+    RetrievalSearchTool,
+)
 from app.database import get_db
 from app.repositories.chat_repository import ChatRepository
 from app.repositories.document_repository import DocumentRepository
@@ -190,6 +195,19 @@ def get_reranking_service() -> RerankingService:
 def get_guardrail_service() -> GuardrailService:
     return GuardrailService()
 
+def get_retrieval_agent(
+    retrieval_service: RetrievalService,
+    guardrail_service: GuardrailService,
+) -> RetrievalAgent:
+    return RetrievalAgent(
+        search_tool=RetrievalSearchTool(retrieval_service),
+        rewrite_tool=KeywordQueryRewriteTool(),
+        guardrail_service=guardrail_service,
+        minimum_confidence=settings.agentic_retrieval_min_confidence,
+        max_retries=settings.agentic_retrieval_max_retries,
+    )
+
+
 
 def get_rag_service(
     db: Annotated[Session, Depends(get_db)],
@@ -199,6 +217,10 @@ def get_rag_service(
     llm_service = get_llm_service()
     reranking_service = get_reranking_service()
     guardrail_service = get_guardrail_service()
+    retrieval_agent = get_retrieval_agent(
+        retrieval_service=retrieval_service,
+        guardrail_service=guardrail_service,
+    )
 
     return RagService(
         retrieval_service=retrieval_service,
@@ -210,4 +232,6 @@ def get_rag_service(
         guardrail_service=guardrail_service,
         retrieval_min_confidence=settings.retrieval_min_confidence,
         citation_validation_enabled=settings.citation_validation_enabled,
+        retrieval_agent=retrieval_agent,
+        agentic_retrieval_enabled=settings.agentic_retrieval_enabled,
     )

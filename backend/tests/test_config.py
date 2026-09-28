@@ -15,3 +15,6 @@ def test_default_embedding_settings_match_current_vector_schema() -> None:
     assert settings.retrieval_min_confidence == 0.05
     assert settings.citation_validation_enabled is True
     assert settings.log_level == "INFO"
+    assert settings.agentic_retrieval_enabled is False
+    assert settings.agentic_retrieval_max_retries == 1
+    assert settings.agentic_retrieval_min_confidence == 0.35

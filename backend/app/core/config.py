@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     hybrid_search_enabled: bool = False
     reranker_enabled: bool = False
     reranker_candidate_k: int = Field(default=20, ge=1, le=100)
+    agentic_retrieval_enabled: bool = False
+    agentic_retrieval_max_retries: int = Field(default=1, ge=0, le=3)
+    agentic_retrieval_min_confidence: float = Field(default=0.35, ge=0.0, le=1.0)
     retrieval_min_confidence: float = Field(default=0.05, ge=0.0, le=1.0)
     citation_validation_enabled: bool = True
 
