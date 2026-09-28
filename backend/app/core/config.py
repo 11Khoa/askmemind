@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     retrieval_min_confidence: float = Field(default=0.05, ge=0.0, le=1.0)
     citation_validation_enabled: bool = True
 
+    max_upload_size_mb: int = Field(default=25, ge=1, le=100)
     upload_dir: str = "storage/uploads"
     temp_dir: str = "storage/temp"
 

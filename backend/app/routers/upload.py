@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, HTTPException, status, UploadFile
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.core.config import settings
 from app.core.dependencies import (
     get_current_user,
     get_document_processing_service,
@@ -24,6 +25,40 @@ router = APIRouter(
 )
 
 
+def _read_validated_pdf(
+    file: UploadFile,
+    max_size_bytes: int,
+) -> bytes:
+    if file.content_type != "application/pdf":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only PDF uploads are supported",
+        )
+
+    file_bytes = file.file.read(max_size_bytes + 1)
+    if len(file_bytes) > max_size_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="Uploaded PDF exceeds the configured size limit",
+        )
+
+    if not file_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded PDF is empty",
+        )
+
+    if not file_bytes.startswith(b"%PDF-"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file does not have a valid PDF header",
+        )
+
+    return file_bytes
+
+
+
+
 @router.post("/upload", response_model=DocumentRead)
 def upload_document(
     file: Annotated[UploadFile, File()],
@@ -35,7 +70,10 @@ def upload_document(
         Depends(get_document_processing_service),
     ],
 ):
-    file_bytes = file.file.read()
+    file_bytes = _read_validated_pdf(
+        file=file,
+        max_size_bytes=settings.max_upload_size_mb * 1024 * 1024,
+    )
     file_size_bytes = len(file_bytes)
 
     original_filename = file.filename or "upload.pdf"

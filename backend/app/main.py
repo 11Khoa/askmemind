@@ -14,7 +14,7 @@ from app.core.logging import (
     log_event,
     start_request_context,
 )
-from app.routers import auth, chat, document, upload
+from app.routers import auth, chat, document, health, upload
 
 configure_logging(level=settings.log_level)
 logger = logging.getLogger(__name__)
@@ -74,6 +74,7 @@ if cors_origins:
         allow_headers=["*"],
     )
 
+app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(chat.router)
 app.include_router(upload.router)

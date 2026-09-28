@@ -130,30 +130,32 @@ class node_document_repo,node_chunk_repo,node_chat_repo,node_postgres,node_nvidi
 
 ## Status
 
-AskMeMind is currently an MVP.
+AskMeMind is a production-oriented RAG portfolio backend. It implements the
+reliability, evaluation, and operational boundaries expected from an applied AI
+service while keeping asynchronous jobs and distributed infrastructure out of
+scope.
 
 Implemented:
 
-- User registration and login with Bearer JWT authentication
-- PDF upload and local file storage
-- PDF text extraction
-- Text chunking with citation fields
-- Embedding generation
-- pgvector storage and similarity search
-- Retrieval-first RAG answer generation
-- Chat and message persistence
-- Local smoke-test requests
-- Backend test suite
+- JWT-authenticated, user-isolated document and chat workflows
+- Size-limited PDF upload, signature validation, extraction, and chunking
+- NVIDIA embeddings in PostgreSQL with pgvector
+- PostgreSQL full-text search with a GIN index
+- Vector, lexical, and weighted RRF hybrid retrieval
+- Configurable second-stage heuristic reranking
+- Confidence fallback, citation validation, and prompt-injection isolation
+- Bounded self-correcting retrieval with explicit search and rewrite tools
+- JSON request and RAG stage logs with request IDs, latency, and token usage
+- Reproducible retrieval evaluation with JSON, CSV, and Markdown reports
+- Liveness/readiness endpoints and Docker health checks
+- Unit, workflow, repository, and API integration tests
 
-Not included yet:
+Intentionally out of scope:
 
 - Background processing with Celery and Redis
 - Streaming assistant responses
-- Document deletion
-- Multi-document chat
-- Object storage for uploaded files
-- Production observability
-- Full production frontend
+- Object storage and horizontal worker scaling
+- A full production frontend
 
 The `frontend/streamlit` directory contains a lightweight Streamlit client for local interaction. The core product surface is still the FastAPI backend.
 
@@ -193,22 +195,39 @@ The backend follows clean architecture principles:
 ## RAG Pipeline
 
 ~~~text
-Upload PDF
-  -> save uploaded file
-  -> create document record
+PDF upload
+  -> validate size, content type, and PDF signature
   -> extract page-aware text
-  -> split text into chunks
-  -> generate passage embeddings
-  -> store chunks, vectors, and embedding metadata
-  -> receive user question
-  -> generate query embedding
-  -> retrieve relevant chunks
-  -> build grounded context
-  -> generate answer
-  -> persist chat messages and citations
+  -> chunk and embed passages
+  -> persist text, metadata, and vectors
+  -> vector search + PostgreSQL FTS
+  -> weighted reciprocal-rank fusion
+  -> optional bounded query rewrite and retry
+  -> optional heuristic reranking
+  -> confidence guardrail
+  -> build citation-aware context
+  -> grounded LLM answer
+  -> validate cited source numbers
+  -> persist answer and citations
 ~~~
 
-AskMeMind is intentionally retrieval-first. If no relevant document chunks are found, the system returns a fallback answer instead of asking the LLM to answer from general knowledge.
+Vector search handles semantic similarity; PostgreSQL full-text search handles
+exact terms, names, and abbreviations. Hybrid mode combines their rank positions
+with weighted reciprocal-rank fusion, so incompatible raw score scales never
+need to be normalized together. The optional reranker then scores a larger
+candidate pool using keyword overlap, original rank, and phrase matches.
+
+When agentic retrieval is enabled, a Python state machine calls the retrieval
+tool, grades the evidence, rewrites weak queries into deterministic keywords,
+and retries at most the configured number of times. It keeps the strongest
+result seen and logs each decision. This avoids unbounded loops and avoids an
+extra LLM call solely for query rewriting.
+
+The answer path is retrieval-first. Empty or low-confidence evidence returns a
+stable no-answer response without calling the LLM. Generated answers must cite
+source markers that exist in the built context; invalid citations also trigger
+the fallback. Document context is delimited as untrusted data in the generation
+prompt.
 
 ## Evaluation
 
@@ -235,17 +254,33 @@ questions at `K=5`:
 | Hybrid RRF | 100.00% | 0.71 | 75.00% | 47.78% | Not captured |
 | Hybrid + reranker | Pending provider availability | - | - | - | - |
 
+## Reliability and Observability
+
+Every HTTP response includes an `X-Request-ID`. JSON logs carry that request ID
+and the authenticated user ID across retrieval, reranking, generation, and
+fallback events. Stage logs include latency, retrieval method, candidate counts,
+confidence, fallback reason, citation errors, and provider token usage. Raw
+questions and document text are deliberately excluded from agent decision logs.
+
+Operational probes:
+
+- `GET /health/live` confirms that the API process can serve requests.
+- `GET /health/ready` runs `SELECT 1` and returns 503 when PostgreSQL is unavailable.
+- Docker Compose waits for PostgreSQL readiness and health-checks the backend.
+
 ## Project Structure
 
 ~~~text
 backend/app/
   core/          configuration, security, dependencies, unit of work
+  agents/        bounded retrieval state machine and tool boundaries
   models/        SQLAlchemy ORM models
   repositories/  database access layer
   routers/       FastAPI HTTP endpoints
   schemas/       Pydantic request and response schemas
   services/      business logic, RAG pipeline, provider integrations
 
+backend/evaluation/ datasets, metrics, runner, and generated reports
 backend/tests/   pytest test suite
 frontend/        Streamlit client prototype
 http/            local smoke-test requests and sample PDFs
@@ -273,6 +308,11 @@ Chats:
 - `POST /chats/{chat_id}/messages`
 - `GET /chats/{chat_id}/messages`
 - `POST /chats/{chat_id}/questions`
+
+Health:
+
+- `GET /health/live`
+- `GET /health/ready`
 
 After the backend is running, the OpenAPI docs are available at:
 
@@ -392,9 +432,26 @@ LLM_BASE_URL=https://api.groq.com/openai/v1
 LLM_MAX_TOKENS=500
 ~~~
 
+Retrieval, reliability, and agent settings:
+
+~~~env
+HYBRID_SEARCH_ENABLED=false
+RERANKER_ENABLED=false
+RERANKER_CANDIDATE_K=20
+RETRIEVAL_MIN_CONFIDENCE=0.05
+CITATION_VALIDATION_ENABLED=true
+AGENTIC_RETRIEVAL_ENABLED=false
+AGENTIC_RETRIEVAL_MAX_RETRIES=1
+AGENTIC_RETRIEVAL_MIN_CONFIDENCE=0.35
+~~~
+
+The hybrid, reranking, and agentic features are independent flags. Enable them
+after running the evaluation command against your own documents and questions.
+
 Storage settings:
 
 ~~~env
+MAX_UPLOAD_SIZE_MB=25
 UPLOAD_DIR=storage/uploads
 TEMP_DIR=storage/temp
 ~~~
@@ -483,22 +540,21 @@ Do not use `docker compose down -v` unless you intentionally want to delete Dock
 
 ## Current Limitations
 
-- PDF processing and embedding generation are synchronous in the MVP.
-- Upload validation currently supports PDFs only.
-- The vector dimension is fixed at 1024 in the current schema.
-- Chat history is append-only; message deletion is intentionally out of scope.
-- Production concerns such as async job orchestration, object storage, and observability are future work.
+- PDF processing and external embedding calls are synchronous.
+- Uploads use local disk rather than durable object storage.
+- The vector dimension is fixed at 1024; changing embedding models requires a migration and full re-embedding.
+- The deterministic query rewriter is transparent and cheap, but less flexible than a separately evaluated model-based rewriter.
+- Chat history is append-only, and answer streaming is not implemented.
+- Structured logs are emitted to stdout; metrics export and distributed tracing are not configured.
 
-## Roadmap
+## Next Steps
 
-- Move PDF processing and embedding generation to Celery workers.
-- Add Redis-backed job status tracking.
-- Add a polished frontend for upload, document listing, and chat.
-- Add document deletion with file and chunk cleanup.
-- Add streaming assistant responses.
-- Support multiple documents in a single chat.
-- Add richer citation display.
-- Prepare deployment configuration for production operations.
+- Move ingestion to a background worker with durable job status.
+- Add object storage and document deletion with file/chunk cleanup.
+- Evaluate a replacement embedding model and re-index existing chunks before changing the configured model.
+- Compare the heuristic reranker with a cross-encoder on the checked-in dataset.
+- Export OpenTelemetry traces and Prometheus metrics when deployment requirements justify them.
+- Add streaming responses and a polished frontend.
 
 ## Development Notes
 
