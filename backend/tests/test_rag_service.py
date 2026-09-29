@@ -326,3 +326,58 @@ def test_answer_question_falls_back_for_invalid_citations(answer: str) -> None:
         context="",
         citations=[],
     )
+
+
+def test_stream_answer_question_yields_tokens_then_final_answer() -> None:
+    user_id = uuid.uuid4()
+    document_id = uuid.uuid4()
+    chunk_id = uuid.uuid4()
+
+    citation = ContextCitation(
+        source_number=1,
+        document_id=document_id,
+        chunk_id=chunk_id,
+        chunk_index=0,
+        page_number=3,
+        start_time_seconds=None,
+        end_time_seconds=None,
+        distance=0.12,
+    )
+    built_context = BuiltContext(
+        context="[Source 1]\nContent:\nRefund policy content.",
+        citations=[citation],
+    )
+
+    retrieval_service = Mock(spec=RetrievalService)
+    retrieval_service.retrieve_relevant_chunks.return_value = [Mock()]
+
+    context_builder_service = Mock(spec=ContextBuilderService)
+    context_builder_service.build_context.return_value = built_context
+
+    llm_service = Mock(spec=LLMService)
+    llm_service.stream_answer.return_value = iter([
+        "Refunds ",
+        "are available [Source 1].",
+    ])
+
+    service = RagService(
+        retrieval_service=retrieval_service,
+        context_builder_service=context_builder_service,
+        llm_service=llm_service,
+    )
+
+    events = list(service.stream_answer_question(
+        question="What is the refund policy?",
+        user_id=user_id,
+        document_id=document_id,
+        top_k=3,
+    ))
+
+    assert [event.event for event in events] == ["token", "token", "final"]
+    assert events[0].token == "Refunds "
+    assert events[1].token == "are available [Source 1]."
+    assert events[2].answer == RagAnswer(
+        answer="Refunds are available [Source 1].",
+        context="[Source 1]\nContent:\nRefund policy content.",
+        citations=[citation],
+    )

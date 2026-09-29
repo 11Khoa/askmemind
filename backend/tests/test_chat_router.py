@@ -122,3 +122,70 @@ def test_create_rag_question_maps_permission_error_to_403() -> None:
             "detail"] == "You don't have access to this chat"
     finally:
         app.dependency_overrides.clear()
+
+
+def test_stream_rag_question_returns_token_and_final_events() -> None:
+    user_id = uuid.uuid4()
+    chat_id = uuid.uuid4()
+    document_id = uuid.uuid4()
+    message_id = uuid.uuid4()
+
+    chat_service = Mock()
+    chat_service.get_user_chat.return_value = SimpleNamespace(
+        id=chat_id,
+        user_id=user_id,
+    )
+    chat_service.stream_rag_message.return_value = iter([
+        SimpleNamespace(event="token", token="Hello", message=None),
+        SimpleNamespace(event="token", token=" world", message=None),
+        SimpleNamespace(
+            event="final",
+            token=None,
+            message=SimpleNamespace(
+                id=message_id,
+                chat_id=chat_id,
+                message_index=1,
+                role="assistant",
+                content="Hello world",
+                message_metadata={"citations": [], "context": "Context"},
+                created_at=datetime.now(UTC),
+            ),
+        ),
+    ])
+
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(
+        id=user_id)
+    app.dependency_overrides[get_chat_service] = lambda: chat_service
+
+    try:
+        client = TestClient(app=app)
+
+        response = client.post(
+            f"/chats/{chat_id}/questions/stream",
+            json={
+                "content": "Question?",
+                "document_id": str(document_id),
+                "top_k": 3,
+            },
+        )
+
+        assert response.status_code == 200
+        assert "event: token" in response.text
+        assert 'data: {"token": "Hello"}' in response.text
+        assert 'data: {"token": " world"}' in response.text
+        assert "event: final" in response.text
+        assert f'"id": "{message_id}"' in response.text
+
+        chat_service.get_user_chat.assert_called_once_with(
+            user_id=user_id,
+            chat_id=chat_id,
+        )
+        chat_service.stream_rag_message.assert_called_once_with(
+            user_id=user_id,
+            chat_id=chat_id,
+            content="Question?",
+            document_id=document_id,
+            top_k=3,
+        )
+    finally:
+        app.dependency_overrides.clear()

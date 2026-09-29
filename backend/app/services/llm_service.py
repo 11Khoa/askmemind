@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from typing import Protocol
 
 
@@ -7,6 +8,13 @@ class LLMProvider(Protocol):
         question: str,
         context: str,
     ) -> str:
+        ...
+
+    def stream_answer(
+        self,
+        question: str,
+        context: str,
+    ) -> Iterator[str]:
         ...
 
 
@@ -23,6 +31,16 @@ class LLMService:
         context: str,
     ) -> str:
         return self.provider.generate_answer(
+            question=question,
+            context=context,
+        )
+
+    def stream_answer(
+        self,
+        question: str,
+        context: str,
+    ) -> Iterator[str]:
+        yield from self.provider.stream_answer(
             question=question,
             context=context,
         )

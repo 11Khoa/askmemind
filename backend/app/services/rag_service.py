@@ -1,17 +1,19 @@
 import logging
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass
 from time import perf_counter
 
 from app.agents.retrieval_agent import RetrievalAgent
 from app.core.logging import log_event
 from app.services.context_builder_service import (
+    BuiltContext,
     ContextBuilderService,
     ContextCitation,
 )
 from app.services.guardrail_service import GuardrailService
 from app.services.llm_service import LLMService
-from app.services.retrieval_service import RetrievalService
+from app.services.retrieval_service import RetrievedChunk, RetrievalService
 from app.services.reranking_service import RerankingService
 
 logger = logging.getLogger(__name__)
@@ -25,6 +27,22 @@ class RagAnswer:
     answer: str
     context: str
     citations: list[ContextCitation]
+
+
+@dataclass(frozen=True)
+class RagStreamEvent:
+    event: str
+    token: str | None = None
+    answer: RagAnswer | None = None
+
+
+@dataclass(frozen=True)
+class PreparedRagContext:
+    total_started_at: float
+    retrieved_chunks: list[RetrievedChunk]
+    candidate_count: int
+    built_context: BuiltContext
+    best_confidence: float | None
 
 
 class RagService:
@@ -54,6 +72,7 @@ class RagService:
 
         self.retrieval_agent = retrieval_agent
         self.agentic_retrieval_enabled = agentic_retrieval_enabled
+
     def answer_question(
         self,
         question: str,
@@ -61,6 +80,86 @@ class RagService:
         document_id: uuid.UUID | None = None,
         top_k: int = 3,
     ) -> RagAnswer:
+        prepared = self._prepare_context(
+            question=question,
+            user_id=user_id,
+            document_id=document_id,
+            top_k=top_k,
+        )
+        if isinstance(prepared, RagAnswer):
+            return prepared
+
+        llm_started_at = perf_counter()
+        answer = self.llm_service.generate_answer(
+            question=question,
+            context=prepared.built_context.context,
+        )
+        llm_latency_ms = (perf_counter() - llm_started_at) * 1000
+        log_event(
+            logger,
+            logging.INFO,
+            "rag.llm.completed",
+            llm_latency_ms=round(llm_latency_ms, 2),
+            answer_characters=len(answer),
+        )
+
+        return self._finish_answer(
+            answer=answer,
+            prepared=prepared,
+        )
+
+    def stream_answer_question(
+        self,
+        question: str,
+        user_id: uuid.UUID,
+        document_id: uuid.UUID | None = None,
+        top_k: int = 3,
+    ) -> Iterator[RagStreamEvent]:
+        prepared = self._prepare_context(
+            question=question,
+            user_id=user_id,
+            document_id=document_id,
+            top_k=top_k,
+        )
+        if isinstance(prepared, RagAnswer):
+            yield RagStreamEvent(event="replace", token=prepared.answer)
+            yield RagStreamEvent(event="final", answer=prepared)
+            return
+
+        answer_chunks: list[str] = []
+        llm_started_at = perf_counter()
+        for token in self.llm_service.stream_answer(
+            question=question,
+            context=prepared.built_context.context,
+        ):
+            answer_chunks.append(token)
+            yield RagStreamEvent(event="token", token=token)
+
+        answer = "".join(answer_chunks)
+        llm_latency_ms = (perf_counter() - llm_started_at) * 1000
+        log_event(
+            logger,
+            logging.INFO,
+            "rag.llm.stream.completed",
+            llm_latency_ms=round(llm_latency_ms, 2),
+            answer_characters=len(answer),
+        )
+
+        final_answer = self._finish_answer(
+            answer=answer,
+            prepared=prepared,
+        )
+        if final_answer.answer != answer:
+            yield RagStreamEvent(event="replace", token=final_answer.answer)
+        yield RagStreamEvent(event="final", answer=final_answer)
+
+    def _prepare_context(
+        self,
+        question: str,
+        user_id: uuid.UUID,
+        document_id: uuid.UUID | None,
+        top_k: int,
+    ) -> PreparedRagContext | RagAnswer:
         total_started_at = perf_counter()
         retrieval_limit = (
             max(top_k, self.reranker_candidate_k)
@@ -162,21 +261,20 @@ class RagService:
             retrieved_chunks=retrieved_chunks,
         )
 
-        llm_started_at = perf_counter()
-        answer = self.llm_service.generate_answer(
-            question=question,
-            context=built_context.context,
-        )
-        llm_latency_ms = (perf_counter() - llm_started_at) * 1000
-        log_event(
-            logger,
-            logging.INFO,
-            "rag.llm.completed",
-            llm_latency_ms=round(llm_latency_ms, 2),
-            answer_characters=len(answer),
+        return PreparedRagContext(
+            total_started_at=total_started_at,
+            retrieved_chunks=retrieved_chunks,
+            candidate_count=candidate_count,
+            built_context=built_context,
+            best_confidence=best_confidence,
         )
 
-        citations = built_context.citations
+    def _finish_answer(
+        self,
+        answer: str,
+        prepared: PreparedRagContext,
+    ) -> RagAnswer:
+        citations = prepared.built_context.citations
         if self.citation_validation_enabled:
             guardrail_service = self._require_guardrail_service()
             validation = guardrail_service.validate_answer_citations(
@@ -186,9 +284,9 @@ class RagService:
             if not validation.valid:
                 return self._fallback(
                     reason="invalid_citations",
-                    total_started_at=total_started_at,
-                    retrieved_chunks=len(retrieved_chunks),
-                    best_confidence=best_confidence,
+                    total_started_at=prepared.total_started_at,
+                    retrieved_chunks=len(prepared.retrieved_chunks),
+                    best_confidence=prepared.best_confidence,
                     citation_errors=list(validation.errors),
                 )
             citations = guardrail_service.select_cited_context(
@@ -196,22 +294,22 @@ class RagService:
                 cited_source_numbers=validation.cited_source_numbers,
             )
 
-        total_latency_ms = (perf_counter() - total_started_at) * 1000
+        total_latency_ms = (perf_counter() - prepared.total_started_at) * 1000
         log_event(
             logger,
             logging.INFO,
             "rag.completed",
             retrieval_method=self.retrieval_service.active_method,
             total_latency_ms=round(total_latency_ms, 2),
-            retrieved_chunks=candidate_count,
-            final_chunks=len(retrieved_chunks),
-            best_confidence=best_confidence,
+            retrieved_chunks=prepared.candidate_count,
+            final_chunks=len(prepared.retrieved_chunks),
+            best_confidence=prepared.best_confidence,
             fallback=False,
         )
 
         return RagAnswer(
             answer=answer,
-            context=built_context.context,
+            context=prepared.built_context.context,
             citations=citations,
         )
 

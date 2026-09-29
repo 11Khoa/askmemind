@@ -100,3 +100,69 @@ def test_generate_answer_sends_chat_completion_request(
     )
     assert usage_record.event_data["total_tokens"] == 120
     assert usage_record.event_data["model"] == "openai/gpt-oss-120b"
+
+
+class FakeStreamResponse:
+    def __init__(self, lines: list[str]) -> None:
+        self.lines = lines
+
+    def __enter__(self) -> "FakeStreamResponse":
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        return None
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def iter_lines(self):
+        yield from self.lines
+
+
+def test_stream_answer_yields_delta_tokens(monkeypatch, caplog) -> None:
+    captured_request: dict[str, Any] = {}
+
+    def fake_stream(
+        method: str,
+        url: str,
+        headers: dict[str, str],
+        json: dict[str, Any],
+        timeout: float,
+    ) -> FakeStreamResponse:
+        captured_request["method"] = method
+        captured_request["url"] = url
+        captured_request["headers"] = headers
+        captured_request["json"] = json
+        captured_request["timeout"] = timeout
+        return FakeStreamResponse([
+            'data: {"choices":[{"delta":{"content":"Hello"}}]}',
+            'data: {"choices":[{"delta":{"content":" world"}}]}',
+            "data: [DONE]",
+        ])
+
+    monkeypatch.setattr(httpx, "stream", fake_stream)
+
+    provider = GroqLLMProvider(
+        api_key="groq-api-key",
+        base_url="https://api.groq.com/openai/v1/",
+        model="openai/gpt-oss-120b",
+        max_tokens=500,
+    )
+
+    result = list(provider.stream_answer(
+        question="What is the refund policy?",
+        context="[Source 1]\nContent:\nRefunds are available.",
+    ))
+
+    assert result == ["Hello", " world"]
+    assert captured_request["method"] == "POST"
+    assert captured_request["url"] == (
+        "https://api.groq.com/openai/v1/chat/completions"
+    )
+    assert captured_request["json"]["stream"] is True
+    assert captured_request["timeout"] == 30.0
+    stream_record = next(
+        record for record in caplog.records
+        if record.getMessage() == "llm.provider.stream.completed"
+    )
+    assert stream_record.event_data["streamed_chunks"] == 2
