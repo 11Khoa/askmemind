@@ -13,3 +13,5 @@ PyJWT
 python-multipart
 PyMuPDF
 httpx
+celery[redis]
+redis

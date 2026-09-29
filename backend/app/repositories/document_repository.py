@@ -67,7 +67,7 @@ class DocumentRepository:
         document: Document,
         page_count: int | None,
     ) -> Document:
-        document.status = DocumentStatus.COMPLETED.value
+        document.status = DocumentStatus.READY.value
         document.page_count = page_count
         document.error_message = None
 
@@ -80,12 +80,30 @@ class DocumentRepository:
         document: Document,
         error_message: str,
     ) -> Document:
-        document.status = DocumentStatus.FAILED.value
+        document.status = DocumentStatus.PROCESSING_FAILED.value
         document.error_message = error_message
 
         self.db.flush()
 
         return document
+
+    def mark_processing_documents_failed(
+        self,
+        error_message: str,
+    ) -> int:
+        updated_count = (
+            self.db.query(Document)
+            .filter(Document.status == DocumentStatus.PROCESSING.value)
+            .update(
+                {
+                    Document.status: DocumentStatus.PROCESSING_FAILED.value,
+                    Document.error_message: error_message,
+                },
+                synchronize_session="fetch",
+            )
+        )
+        self.db.flush()
+        return updated_count
 
     def get_user_document_by_original_filename(
         self,

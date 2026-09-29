@@ -20,3 +20,19 @@ def test_default_embedding_settings_match_current_vector_schema() -> None:
     assert settings.agentic_retrieval_max_retries == 1
     assert settings.agentic_retrieval_min_confidence == 0.35
     assert settings.max_upload_size_mb == 25
+    assert settings.redis_url == 'redis://localhost:6379/0'
+    assert settings.resolved_celery_broker_url == settings.redis_url
+    assert settings.resolved_celery_result_backend == settings.redis_url
+
+
+def test_celery_urls_can_override_redis_url() -> None:
+    settings = Settings(
+        database_url='postgresql://test:test@localhost:5432/test',
+        secret_key='test-secret',
+        redis_url='redis://redis:6379/0',
+        celery_broker_url='redis://broker:6379/1',
+        celery_result_backend='redis://backend:6379/2',
+    )
+
+    assert settings.resolved_celery_broker_url == 'redis://broker:6379/1'
+    assert settings.resolved_celery_result_backend == 'redis://backend:6379/2'

@@ -42,7 +42,7 @@ def test_create_uploaded_document_success() -> None:
         file_path="/uploads/stored.pdf",
         content_type="application/pdf",
         file_size_bytes=123,
-        status=DocumentStatus.UPLOADED,
+        status=DocumentStatus.PROCESSING,
         source_type="pdf",
         source_metadata=None,
     )

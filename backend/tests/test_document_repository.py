@@ -97,3 +97,41 @@ def test_mark_processing_failed(db_session: Session) -> None:
     assert updated_document is document
     assert document.status == DocumentStatus.FAILED.value
     assert document.error_message == "PDF has no extractable text"
+
+
+def test_mark_processing_documents_failed_is_idempotent(db_session: Session) -> None:
+    user = User(
+        email='stale-processing-documents@gmail.com',
+        hashed_password='hashed',
+    )
+    stale_document = Document(
+        filename='stale.pdf',
+        original_filename='stale.pdf',
+        file_path='/tmp/stale.pdf',
+        content_type='application/pdf',
+        file_size_bytes=123,
+        status=DocumentStatus.PROCESSING.value,
+    )
+    ready_document = Document(
+        filename='ready.pdf',
+        original_filename='ready.pdf',
+        file_path='/tmp/ready.pdf',
+        content_type='application/pdf',
+        file_size_bytes=123,
+        status=DocumentStatus.READY.value,
+    )
+    user.documents.extend([stale_document, ready_document])
+    db_session.add(user)
+    db_session.flush()
+
+    repository = DocumentRepository(db=db_session)
+    reason = 'Document processing was interrupted by an application restart.'
+
+    assert repository.mark_processing_documents_failed(error_message=reason) == 1
+    db_session.refresh(stale_document)
+    db_session.refresh(ready_document)
+    assert stale_document.status == DocumentStatus.PROCESSING_FAILED.value
+    assert stale_document.error_message == reason
+    assert ready_document.status == DocumentStatus.READY.value
+
+    assert repository.mark_processing_documents_failed(error_message=reason) == 0

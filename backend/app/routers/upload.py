@@ -8,12 +8,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.config import settings
 from app.core.dependencies import (
     get_current_user,
-    get_document_processing_service,
     get_document_service,
     get_file_storage_service,
 )
+from app.core.logging import get_request_id
 from app.schemas.document import DocumentRead
-from app.services.document_processing_service import DocumentProcessingService
+from app.tasks.document_processing import process_document_task
 from app.services.document_service import DocumentService
 from app.services.file_storage_service import FileStorageService
 from app.models.user import User
@@ -57,17 +57,18 @@ def _read_validated_pdf(
     return file_bytes
 
 
-
-
-@router.post("/upload", response_model=DocumentRead)
+@router.post(
+    "/upload",
+    response_model=DocumentRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 def upload_document(
     file: Annotated[UploadFile, File()],
     current_user: Annotated[User, Depends(get_current_user)],
     document_service: Annotated[DocumentService, Depends(get_document_service)],
-    file_storage_service: Annotated[FileStorageService, Depends(get_file_storage_service)],
-    document_processing_service: Annotated[
-        DocumentProcessingService,
-        Depends(get_document_processing_service),
+    file_storage_service: Annotated[
+        FileStorageService,
+        Depends(get_file_storage_service),
     ],
 ):
     file_bytes = _read_validated_pdf(
@@ -105,18 +106,11 @@ def upload_document(
             detail="Could not save uploaded document",
         ) from error
 
-    try:
-        document_processing_service.process_document(
-            document_id=document.id,
-            file_path=Path(file_path),
-        )
-    except Exception as error:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Could not process uploaded document",
-        ) from error
-
-    return document_service.get_user_document(
-        user_id=current_user.id,
-        document_id=document.id,
+    process_document_task.delay(
+        str(document.id),
+        str(Path(file_path)),
+        get_request_id(),
+        str(current_user.id),
     )
+
+    return document

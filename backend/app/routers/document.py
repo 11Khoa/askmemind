@@ -1,10 +1,12 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from starlette.responses import StreamingResponse
 
 from app.core.dependencies import get_current_user, get_document_service
 from app.schemas.document import DocumentRead
+from app.services.document_events import document_event_broker
 from app.services.document_service import DocumentService
 from app.models.user import User
 
@@ -27,6 +29,24 @@ def list_documents(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(error),
         ) from error
+
+
+@router.get("/events")
+async def stream_document_events(
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    return StreamingResponse(
+        document_event_broker.stream(
+            user_id=current_user.id,
+            request=request,
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/{document_id}", response_model=DocumentRead)

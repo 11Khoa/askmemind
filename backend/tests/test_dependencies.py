@@ -1,3 +1,5 @@
+from pathlib import Path
+import uuid
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -208,3 +210,92 @@ def test_get_rag_service_builds_rag_service(monkeypatch) -> None:
         service.citation_validation_enabled
         is dependencies.settings.citation_validation_enabled
     )
+
+
+def test_process_document_in_background_marks_failed_and_closes_session(monkeypatch) -> None:
+    from app.core.types import DocumentStatus
+    from app.models.document import Document
+
+    document_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    document = Document(
+        id=document_id,
+        user_id=user_id,
+        filename='failing.pdf',
+        original_filename='failing.pdf',
+        file_path='/tmp/failing.pdf',
+        content_type='application/pdf',
+        file_size_bytes=123,
+        status=DocumentStatus.PROCESSING.value,
+        source_type='pdf',
+    )
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.closed = False
+            self.commits = 0
+            self.rollbacks = 0
+
+        def close(self) -> None:
+            self.closed = True
+
+        def commit(self) -> None:
+            self.commits += 1
+
+        def rollback(self) -> None:
+            self.rollbacks += 1
+
+    class FakeRepository:
+        def __init__(self, db) -> None:
+            self.db = db
+
+        def get_document_by_id(self, document_id):
+            return document
+
+        def mark_processing_failed(self, document, error_message):
+            document.status = DocumentStatus.PROCESSING_FAILED.value
+            document.error_message = error_message
+            return document
+
+    class FailingProcessingService:
+        def process_document(self, document_id, file_path):
+            raise RuntimeError('boom')
+
+    published_events = []
+    fake_session = FakeSession()
+    monkeypatch.setattr(dependencies, 'SessionLocal', lambda: fake_session)
+    monkeypatch.setattr(dependencies, 'DocumentRepository', FakeRepository)
+    monkeypatch.setattr(
+        dependencies,
+        'build_document_processing_service',
+        lambda db: FailingProcessingService(),
+    )
+    monkeypatch.setattr(
+        dependencies.document_event_broker,
+        'publish',
+        lambda user_id, payload: published_events.append((user_id, payload)),
+    )
+
+    dependencies.process_document_in_background(
+        document_id=document_id,
+        file_path=Path('/tmp/failing.pdf'),
+        request_id='request-1',
+        user_id=user_id,
+    )
+
+    assert document.status == DocumentStatus.PROCESSING_FAILED.value
+    assert document.error_message == 'boom'
+    assert fake_session.rollbacks == 1
+    assert fake_session.commits == 1
+    assert fake_session.closed is True
+    assert published_events == [
+        (
+            user_id,
+            {
+                'document_id': str(document_id),
+                'status': DocumentStatus.PROCESSING_FAILED.value,
+                'page_count': None,
+                'error_message': 'boom',
+            },
+        )
+    ]

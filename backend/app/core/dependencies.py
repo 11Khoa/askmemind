@@ -1,4 +1,7 @@
+import logging
 import uuid
+from pathlib import Path
+
 import jwt
 from typing import Annotated
 
@@ -11,7 +14,7 @@ from app.agents.retrieval_agent import (
     RetrievalAgent,
     RetrievalSearchTool,
 )
-from app.database import get_db
+from app.database import SessionLocal, get_db
 from app.repositories.chat_repository import ChatRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.user_repository import UserRepository
@@ -22,6 +25,7 @@ from app.services.document_service import DocumentService
 from app.services.file_storage_service import FileStorageService
 from app.services.chunk_persistence_service import ChunkPersistenceService
 from app.services.chunk_service import ChunkingService
+from app.services.document_events import document_event_broker
 from app.services.document_processing_service import DocumentProcessingService
 from app.services.extraction.pdf_extraction_service import PdfExtractionService
 from app.services.embedding_service import EmbeddingService
@@ -36,10 +40,11 @@ from app.services.rag_service import RagService
 from app.models.user import User
 from app.core.config import settings
 from app.core.security import decode_access_token
-from app.core.logging import bind_user_id
+from app.core.logging import bind_user_id, log_event
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+logger = logging.getLogger(__name__)
 
 
 def get_chat_service(
@@ -107,9 +112,7 @@ def get_file_storage_service() -> FileStorageService:
     return FileStorageService(upload_dir=str(settings.resolved_upload_dir))
 
 
-def get_document_processing_service(
-    db: Annotated[Session, Depends(get_db)],
-) -> DocumentProcessingService:
+def build_document_processing_service(db: Session) -> DocumentProcessingService:
     chunk_repository = ChunkRepository(db=db)
     document_repository = DocumentRepository(db=db)
 
@@ -126,6 +129,70 @@ def get_document_processing_service(
         embedding_service=embedding_service,
         unit_of_work=db,
     )
+
+
+def get_document_processing_service(
+    db: Annotated[Session, Depends(get_db)],
+) -> DocumentProcessingService:
+    return build_document_processing_service(db=db)
+
+
+def process_document_in_background(
+    document_id: uuid.UUID,
+    file_path: Path,
+    request_id: str | None,
+    user_id: uuid.UUID,
+) -> None:
+    db = SessionLocal()
+    repository = DocumentRepository(db=db)
+
+    try:
+        service = build_document_processing_service(db=db)
+        service.process_document(
+            document_id=document_id,
+            file_path=file_path,
+        )
+        document = repository.get_document_by_id(document_id=document_id)
+        if document is not None:
+            document_event_broker.publish(
+                user_id,
+                {
+                    "document_id": str(document.id),
+                    "status": document.status,
+                    "page_count": document.page_count,
+                    "error_message": document.error_message,
+                },
+            )
+    except Exception as error:
+        db.rollback()
+        document = repository.get_document_by_id(document_id=document_id)
+        if document is not None:
+            repository.mark_processing_failed(
+                document=document,
+                error_message=str(error),
+            )
+            db.commit()
+
+        log_event(
+            logger,
+            logging.ERROR,
+            "document.processing.background_failed",
+            request_id=request_id,
+            user_id=str(user_id),
+            document_id=str(document_id),
+            error_type=type(error).__name__,
+        )
+        document_event_broker.publish(
+            user_id,
+            {
+                "document_id": str(document_id),
+                "status": "processing_failed",
+                "page_count": document.page_count if document is not None else None,
+                "error_message": document.error_message if document is not None else str(error),
+            },
+        )
+    finally:
+        db.close()
 
 
 def get_embedding_service() -> EmbeddingService:
@@ -236,3 +303,5 @@ def get_rag_service(
         retrieval_agent=retrieval_agent,
         agentic_retrieval_enabled=settings.agentic_retrieval_enabled,
     )
+
+

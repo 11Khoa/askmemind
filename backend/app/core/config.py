@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     upload_dir: str = "storage/uploads"
     temp_dir: str = "storage/temp"
 
+    redis_url: str = "redis://localhost:6379/0"
+    celery_broker_url: str | None = None
+    celery_result_backend: str | None = None
+
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",
         env_file_encoding="utf-8",
@@ -56,5 +60,14 @@ class Settings(BaseSettings):
         if upload_path.is_absolute():
             return upload_path
         return BASE_DIR / upload_path
+
+    @property
+    def resolved_celery_broker_url(self) -> str:
+        return self.celery_broker_url or self.redis_url
+
+    @property
+    def resolved_celery_result_backend(self) -> str:
+        return self.celery_result_backend or self.redis_url
+
 
 settings = Settings()

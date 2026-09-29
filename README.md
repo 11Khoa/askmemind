@@ -152,7 +152,7 @@ Implemented:
 
 Intentionally out of scope:
 
-- Background processing with Celery and Redis
+- Horizontally scaled document workers beyond the bundled single Celery worker
 - Streaming assistant responses
 - Object storage and horizontal worker scaling
 - A full production frontend
@@ -540,7 +540,7 @@ Do not use `docker compose down -v` unless you intentionally want to delete Dock
 
 ## Current Limitations
 
-- PDF processing and external embedding calls are synchronous.
+- PDF uploads return after validation and persistence; PDF processing runs in a Celery worker backed by Redis. The API uses Redis pub/sub to stream document status updates over SSE. API and worker containers must share access to uploaded files, and production deployments should tune Celery retries, queues, and worker concurrency for their workload. Startup cleanup marks documents left in processing as processing_failed.
 - Uploads use local disk rather than durable object storage.
 - The vector dimension is fixed at 1024; changing embedding models requires a migration and full re-embedding.
 - The deterministic query rewriter is transparent and cheap, but less flexible than a separately evaluated model-based rewriter.
@@ -549,7 +549,7 @@ Do not use `docker compose down -v` unless you intentionally want to delete Dock
 
 ## Next Steps
 
-- Move ingestion to a background worker with durable job status.
+- Add richer Celery retry/backoff policies, worker dashboards, and per-task progress metadata.
 - Add object storage and document deletion with file/chunk cleanup.
 - Evaluate a replacement embedding model and re-index existing chunks before changing the configured model.
 - Compare the heuristic reranker with a cross-encoder on the checked-in dataset.
@@ -561,4 +561,4 @@ Do not use `docker compose down -v` unless you intentionally want to delete Dock
 - RAG answers must go through retrieval; do not answer directly from the LLM when document grounding is required.
 - `chunk_metadata` may be empty for PDF chunks because PDF citations are stored in normalized fields such as `page_number`, `start_char`, and `end_char`.
 - PDF chunks store embedding provider, model, and dimension metadata to support future re-embedding workflows.
-- Celery and Redis are planned for long-running document processing, but they are not wired into the current MVP.
+- Celery and Redis handle long-running document processing; keep the API and worker on shared upload storage unless object storage is added.

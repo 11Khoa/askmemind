@@ -7,5 +7,7 @@ ChatRole = Literal["user", "assistant", "system"]
 class DocumentStatus(StrEnum):
     UPLOADED = "uploaded"
     PROCESSING = "processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
+    READY = "ready"
+    PROCESSING_FAILED = "processing_failed"
+    COMPLETED = "ready"
+    FAILED = "processing_failed"

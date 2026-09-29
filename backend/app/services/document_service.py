@@ -70,7 +70,7 @@ class DocumentService:
             file_path=file_path,
             content_type=content_type,
             file_size_bytes=file_size_bytes,
-            status=DocumentStatus.UPLOADED,
+            status=DocumentStatus.PROCESSING,
             source_type="pdf",
             source_metadata=None,
         )
