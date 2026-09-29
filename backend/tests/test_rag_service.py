@@ -381,3 +381,49 @@ def test_stream_answer_question_yields_tokens_then_final_answer() -> None:
         context="[Source 1]\nContent:\nRefund policy content.",
         citations=[citation],
     )
+
+
+def test_stream_answer_question_keeps_streamed_answer_without_citation_replacement() -> None:
+    citation = ContextCitation(
+        source_number=1,
+        document_id=uuid.uuid4(),
+        chunk_id=uuid.uuid4(),
+        chunk_index=0,
+        page_number=1,
+        start_time_seconds=None,
+        end_time_seconds=None,
+        distance=0.1,
+    )
+    retrieval_service = Mock(spec=RetrievalService)
+    retrieval_service.retrieve_relevant_chunks.return_value = [
+        RetrievedChunk(chunk=Mock(), distance=0.1),
+    ]
+    context_builder_service = Mock(spec=ContextBuilderService)
+    context_builder_service.build_context.return_value = BuiltContext(
+        context="Context",
+        citations=[citation],
+    )
+    llm_service = Mock(spec=LLMService)
+    llm_service.stream_answer.return_value = iter([
+        "Answer without a citation.",
+    ])
+
+    service = RagService(
+        retrieval_service=retrieval_service,
+        context_builder_service=context_builder_service,
+        llm_service=llm_service,
+        guardrail_service=GuardrailService(),
+        citation_validation_enabled=True,
+    )
+
+    events = list(service.stream_answer_question(
+        question="Question",
+        user_id=uuid.uuid4(),
+    ))
+
+    assert [event.event for event in events] == ["token", "final"]
+    assert events[-1].answer == RagAnswer(
+        answer="Answer without a citation.",
+        context="Context",
+        citations=[citation],
+    )
