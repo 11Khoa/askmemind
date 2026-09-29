@@ -1,7 +1,7 @@
 import {
   BookOpenText, ChevronDown, ChevronRight, LoaderCircle,
 } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -30,14 +30,26 @@ export function MessageList({
   onToggleCitation,
 }: MessageListProps) {
   const { t } = useTranslation()
+  const listRef = useRef<HTMLElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
+  const stickToBottomRef = useRef(true)
 
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' })
+  function updateStickToBottom() {
+    const list = listRef.current
+    if (!list) return
+    const distanceFromBottom = list.scrollHeight - list.scrollTop - list.clientHeight
+    stickToBottomRef.current = distanceFromBottom < 96
+  }
+
+  useLayoutEffect(() => {
+    const list = listRef.current
+    if (!list || !stickToBottomRef.current) return
+    list.scrollTop = list.scrollHeight
   }, [messages, sending])
 
   return (
-    <section className="message-list" aria-live="polite">
+    <section ref={listRef} className="message-list" aria-live="polite"
+      onScroll={updateStickToBottom}>
       {loading ? (
         <div className="message-loading">
           <LoaderCircle className="spin" size={20} /> {t('chat.loadingConversation')}

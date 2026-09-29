@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { api, ApiError } from '../lib/api'
+import { MAX_FILE_SIZE_MB, MAX_FILE_SIZE_BYTES } from "../lib/constants";
 import type {
   Chat,
   ChatMessage,
@@ -248,8 +249,8 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
       setNotice({ kind: 'error', message: t('documents.choosePdf') })
       return
     }
-    if (file.size > 25 * 1024 * 1024) {
-      setNotice({ kind: 'error', message: t('documents.pdfTooLarge') })
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      setNotice({ kind: 'error', message: t('documents.pdfTooLarge', {fileLimit: MAX_FILE_SIZE_MB}) })
       return
     }
 
@@ -345,17 +346,18 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
           onSuggestion={setQuestion}
           onToggleCitation={setCitationOpen}
         />
+        <div className='conversation-last'>
+          <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} />
 
-        <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} />
-
-        <Composer
-          question={question}
-          sending={sending}
-          documentsCount={documents.length}
-          selectedDocumentName={selectedDocument?.original_filename}
-          onQuestionChange={setQuestion}
-          onSend={() => void sendQuestion()}
-        />
+          <Composer
+            question={question}
+            sending={sending}
+            documentsCount={documents.length}
+            selectedDocumentName={selectedDocument?.original_filename}
+            onQuestionChange={setQuestion}
+            onSend={() => void sendQuestion()}
+          />
+        </div>
         <p className="composer-hint">{t('workspace.composerHint')}</p>
       </section>
 

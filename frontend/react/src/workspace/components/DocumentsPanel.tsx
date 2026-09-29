@@ -6,6 +6,7 @@ import type { ChangeEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import type { Document } from '../../lib/types'
+import { MAX_FILE_SIZE_MB } from "../../lib/constants";
 
 type DocumentsPanelProps = {
   documents: Document[]
@@ -122,7 +123,7 @@ export function DocumentsPanel({
 
       <div className="documents-foot">
         <strong>{t('documents.documentsCount', { count: documents.length })}</strong>
-        <span>{t('documents.uploadLimit')}</span>
+        <span>{t('documents.uploadLimit', {fileLimit: MAX_FILE_SIZE_MB})}</span>
       </div>
     </aside>
   )
