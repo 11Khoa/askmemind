@@ -1,9 +1,15 @@
 import { BookOpenText, LoaderCircle } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { api, ApiError } from '../lib/api'
-import type { Chat, ChatMessage, Document, User } from '../lib/types'
+import type {
+  Chat,
+  ChatMessage,
+  Document,
+  DocumentStatusEvent,
+  User,
+} from '../lib/types'
 import { ConversationHeader } from './components/ConversationHeader'
 import { Composer } from './components/Composer'
 import { DocumentsPanel } from './components/DocumentsPanel'
@@ -14,10 +20,27 @@ import type { Notice } from './types'
 
 type WorkspaceProps = { token: string; onLogout: () => void }
 
+const READY_STATUSES = new Set(['ready', 'completed'])
+const FAILED_STATUSES = new Set(['processing_failed', 'failed'])
+
+function isReadyDocument(document: Document) {
+  return READY_STATUSES.has(document.status)
+}
+
+function applyDocumentEvent(document: Document, event: DocumentStatusEvent): Document {
+  return {
+    ...document,
+    status: event.status,
+    page_count: event.page_count ?? document.page_count,
+    error_message: event.error_message,
+  }
+}
+
 export function Workspace({ token, onLogout }: WorkspaceProps) {
   const { t } = useTranslation()
   const [user, setUser] = useState<User | null>(null)
   const [documents, setDocuments] = useState<Document[]>([])
+  const documentsRef = useRef<Document[]>([])
   const [chats, setChats] = useState<Chat[]>([])
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
@@ -45,6 +68,10 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
   }, [onLogout, t])
 
   useEffect(() => {
+    documentsRef.current = documents
+  }, [documents])
+
+  useEffect(() => {
     async function loadWorkspace() {
       try {
         const [currentUser, currentDocuments, currentChats] = await Promise.all([
@@ -54,9 +81,7 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
         setDocuments(currentDocuments)
         setChats(currentChats)
         setSelectedDocumentId(
-          currentDocuments.find((document) =>
-            ['ready', 'completed'].includes(document.status),
-          )?.id || null,
+          currentDocuments.find(isReadyDocument)?.id || null,
         )
         if (currentChats.length > 0) {
           setLoadingMessages(true)
@@ -70,6 +95,40 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
     }
     void loadWorkspace()
   }, [handleError, token])
+
+  useEffect(() => api.subscribeDocumentEvents(
+    token,
+    (event) => {
+      const currentDocument = documentsRef.current.find(
+        (document) => document.id === event.document_id,
+      )
+      if (!currentDocument) return
+
+      const updatedDocument = applyDocumentEvent(currentDocument, event)
+      documentsRef.current = documentsRef.current.map((document) => (
+        document.id === event.document_id ? updatedDocument : document
+      ))
+      setDocuments(documentsRef.current)
+
+      if (READY_STATUSES.has(event.status)) {
+        setSelectedDocumentId((current) => current || event.document_id)
+        setNotice({
+          kind: 'success',
+          message: t('documents.readyToSearch', {
+            filename: updatedDocument.original_filename,
+          }),
+        })
+      } else if (FAILED_STATUSES.has(event.status)) {
+        setNotice({
+          kind: 'error',
+          message: t('documents.failedToProcess', {
+            filename: updatedDocument.original_filename,
+          }),
+        })
+      }
+    },
+    handleError,
+  ), [handleError, t, token])
 
   useEffect(() => {
     if (!selectedChatId) return
@@ -120,26 +179,63 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
       return
     }
 
+    const createdAt = new Date().toISOString()
+    const messageIndex = messages.length
+    const optimisticUserId = `optimistic-user-${Date.now()}`
+    const streamingAssistantId = `streaming-assistant-${Date.now()}`
     const optimistic: ChatMessage = {
-      id: `optimistic-${Date.now()}`,
+      id: optimisticUserId,
       chat_id: chatId,
-      message_index: messages.length,
+      message_index: messageIndex,
       role: 'user',
       content,
       message_metadata: null,
-      created_at: new Date().toISOString(),
+      created_at: createdAt,
     }
-    setMessages((current) => [...current, optimistic])
+    const streamingAssistant: ChatMessage = {
+      id: streamingAssistantId,
+      chat_id: chatId,
+      message_index: messageIndex + 1,
+      role: 'assistant',
+      content: '',
+      message_metadata: null,
+      created_at: createdAt,
+    }
+    setMessages((current) => [...current, optimistic, streamingAssistant])
 
     try {
-      const answer = await api.askQuestion(
-        token, chatId, content, selectedDocumentId, topK,
+      await api.streamQuestion(
+        token,
+        chatId,
+        content,
+        selectedDocumentId,
+        topK,
+        {
+          onToken: (chunk) => {
+            setMessages((current) => current.map((message) => (
+              message.id === streamingAssistantId
+                ? { ...message, content: message.content + chunk }
+                : message
+            )))
+          },
+          onReplace: (replacement) => {
+            setMessages((current) => current.map((message) => (
+              message.id === streamingAssistantId
+                ? { ...message, content: replacement }
+                : message
+            )))
+          },
+          onFinal: (answer) => {
+            setMessages((current) => current.map((message) => (
+              message.id === streamingAssistantId ? answer : message
+            )))
+          },
+        },
       )
-      setMessages((current) => [...current, answer])
     } catch (caught) {
-      setMessages((current) =>
-        current.filter((message) => message.id !== optimistic.id),
-      )
+      setMessages((current) => current.filter((message) => (
+        message.id !== optimisticUserId && message.id !== streamingAssistantId
+      )))
       setQuestion(content)
       handleError(caught)
     } finally {
@@ -161,14 +257,30 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
     setNotice(null)
     try {
       const document = await api.uploadDocument(token, file)
-      setDocuments((current) => [document, ...current])
-      setSelectedDocumentId(document.id)
-      setNotice({
-        kind: 'success',
-        message: t('documents.readyToSearch', {
-          filename: document.original_filename,
-        }),
+      setDocuments((current) => {
+        const nextDocuments = [
+          document,
+          ...current.filter((item) => item.id !== document.id),
+        ]
+        documentsRef.current = nextDocuments
+        return nextDocuments
       })
+      if (isReadyDocument(document)) {
+        setSelectedDocumentId(document.id)
+        setNotice({
+          kind: 'success',
+          message: t('documents.readyToSearch', {
+            filename: document.original_filename,
+          }),
+        })
+      } else {
+        setNotice({
+          kind: 'success',
+          message: t('documents.processingStarted', {
+            filename: document.original_filename,
+          }),
+        })
+      }
     } catch (caught) {
       handleError(caught)
     } finally {
@@ -190,6 +302,9 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
   const selectedDocument = documents.find(
     (document) => document.id === selectedDocumentId,
   )
+  const streamingHasContent = messages.some((message) => (
+    message.id.startsWith('streaming-assistant-') && message.content.length > 0
+  ))
 
   return (
     <main className="workspace">
@@ -222,7 +337,7 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
 
         <MessageList
           loading={loadingMessages}
-          sending={sending}
+          sending={sending && !streamingHasContent}
           messages={messages}
           documents={documents}
           selectedDocumentName={selectedDocument?.original_filename}

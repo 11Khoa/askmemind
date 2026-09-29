@@ -1054,7 +1054,8 @@ select:focus-visible {
 .status--ready,
 .status--completed { color: var(--teal); }
 
-.status--failed { color: var(--coral); }
+.status--failed,
+.status--processing_failed { color: var(--coral); }
 
 .status--processing { color: var(--amber); }
 

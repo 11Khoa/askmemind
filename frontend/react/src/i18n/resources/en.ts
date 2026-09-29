@@ -101,12 +101,15 @@ export const en = {
     choosePdf: 'Choose a PDF file to upload.',
     pdfTooLarge: 'PDF files must be 25 MB or smaller.',
     readyToSearch: '{{filename}} is ready to search.',
+    processingStarted: '{{filename}} is processing. You can keep working while it finishes.',
+    failedToProcess: '{{filename}} could not be processed.',
     status: {
       uploaded: 'Uploaded',
       processing: 'Processing',
       ready: 'Ready',
       completed: 'Ready',
       failed: 'Failed',
+      processing_failed: 'Failed',
     },
   },
 } as const

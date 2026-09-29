@@ -10,8 +10,16 @@ export type DocumentStatus =
   | 'uploaded'
   | 'processing'
   | 'ready'
+  | 'processing_failed'
   | 'failed'
   | string
+
+export type DocumentStatusEvent = {
+  document_id: string
+  status: DocumentStatus
+  page_count: number | null
+  error_message: string | null
+}
 
 export type Document = {
   id: string
@@ -68,3 +76,4 @@ export type TokenResponse = {
   access_token: string
   token_type: string
 }
+
