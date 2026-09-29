@@ -1,5 +1,6 @@
 import logging
 import re
+import unicodedata
 import uuid
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -49,6 +50,13 @@ class RetrievalSearchTool:
 class KeywordQueryRewriteTool:
     """Create a deterministic keyword query without another external API call."""
 
+    @staticmethod
+    def _strip_diacritics(value: str) -> str:
+        normalized = unicodedata.normalize("NFD", value.replace("đ", "d"))
+        return "".join(
+            char for char in normalized if not unicodedata.combining(char)
+        )
+
     _STOP_WORDS = frozenset(
         {
             "a",
@@ -78,18 +86,33 @@ class KeywordQueryRewriteTool:
             "who",
             "why",
             "with",
+            "cac",
             "cho",
+            "co",
             "cua",
+            "de",
+            "do",
+            "dung",
             "duoc",
             "gi",
+            "khac",
+            "khi",
+            "khong",
             "la",
             "lam",
+            "ma",
+            "mot",
             "nao",
+            "nay",
+            "neu",
+            "nhung",
             "nhu",
             "the",
+            "thi",
             "trong",
             "tu",
             "va",
+            "voi",
         }
     )
 
@@ -99,7 +122,11 @@ class KeywordQueryRewriteTool:
             dict.fromkeys(
                 token
                 for token in tokens
-                if len(token) > 1 and token not in self._STOP_WORDS
+                # Diacritic stripping is used only for stop-word lookup. It can
+                # collide with meaningful Vietnamese nouns, so keep the emitted
+                # token unchanged for accented full-text matching.
+                if len(token) > 1
+                and self._strip_diacritics(token) not in self._STOP_WORDS
             )
         )
         rewritten = " ".join(keywords)

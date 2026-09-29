@@ -174,3 +174,65 @@ def test_keyword_rewrite_removes_question_words_and_duplicates() -> None:
     assert tool.rewrite(
         "What is the Oracle oracle Network?"
     ) == "oracle network"
+
+
+def test_keyword_rewrite_removes_accented_vietnamese_stop_words() -> None:
+    tool = KeywordQueryRewriteTool()
+
+    assert (
+        tool.rewrite("Chainlink được dùng để làm gì trong hệ thống?")
+        == "chainlink hệ thống"
+    )
+
+
+def test_keyword_rewrite_removes_unaccented_vietnamese_stop_words() -> None:
+    tool = KeywordQueryRewriteTool()
+
+    assert (
+        tool.rewrite("Chainlink duoc dung de lam gi trong he thong?")
+        == "chainlink he thong"
+    )
+
+
+def test_keyword_rewrite_removes_english_stop_words() -> None:
+    tool = KeywordQueryRewriteTool()
+
+    assert tool.rewrite("How can Chainlink work in DeFi?") == "chainlink work defi"
+
+
+def test_keyword_rewrite_handles_mixed_vietnamese_and_english() -> None:
+    tool = KeywordQueryRewriteTool()
+
+    assert (
+        tool.rewrite("Chainlink và oracle network được dùng như thế nào?")
+        == "chainlink oracle network"
+    )
+
+
+def test_agent_stops_when_keyword_rewrite_keeps_original_query() -> None:
+    search_tool = Mock()
+    search_tool.search.return_value = []
+    user_id = uuid.uuid4()
+    agent = RetrievalAgent(
+        search_tool=search_tool,
+        rewrite_tool=KeywordQueryRewriteTool(),
+        guardrail_service=GuardrailService(),
+        minimum_confidence=0.5,
+        max_retries=2,
+    )
+
+    result = agent.retrieve(
+        question="Chainlink",
+        user_id=user_id,
+        document_id=None,
+        top_k=3,
+    )
+
+    assert result.state.decisions == ["rewrite", "query_unchanged"]
+    assert result.state.retry_count == 0
+    search_tool.search.assert_called_once_with(
+        query="Chainlink",
+        user_id=user_id,
+        document_id=None,
+        top_k=3,
+    )
