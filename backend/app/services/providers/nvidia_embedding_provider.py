@@ -10,11 +10,16 @@ class NvidiaEmbeddingProvider:
         base_url: str,
         model: str,
         dimensions: int,
+        batch_size: int = 32,
     ) -> None:
+        if batch_size <= 0:
+            raise ValueError("batch_size must be greater than 0")
+
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.dimensions = dimensions
+        self.batch_size = batch_size
 
     def embed_passages(
         self,
@@ -41,6 +46,23 @@ class NvidiaEmbeddingProvider:
         texts: list[str],
         input_type: str,
     ) -> list[list[float]]:
+        embeddings: list[list[float]] = []
+        for start in range(0, len(texts), self.batch_size):
+            batch = texts[start:start + self.batch_size]
+            embeddings.extend(
+                self._embed_batch(
+                    texts=batch,
+                    input_type=input_type,
+                )
+            )
+
+        return embeddings
+
+    def _embed_batch(
+        self,
+        texts: list[str],
+        input_type: str,
+    ) -> list[list[float]]:
         response = httpx.post(
             f"{self.base_url}/embeddings",
             headers={
@@ -55,7 +77,15 @@ class NvidiaEmbeddingProvider:
             },
             timeout=30.0,
         )
-        response.raise_for_status()
+
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as error:
+            detail = response.text[:500]
+            raise RuntimeError(
+                "NVIDIA embedding request failed "
+                f"with status {response.status_code}: {detail}"
+            ) from error
 
         payload: dict[str, Any] = response.json()
 

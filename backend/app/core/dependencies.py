@@ -207,6 +207,7 @@ def get_embedding_service() -> EmbeddingService:
             base_url=settings.embedding_base_url,
             model=settings.embedding_model,
             dimensions=settings.embedding_dimensions,
+            batch_size=settings.embedding_batch_size,
         )
 
         return EmbeddingService(

@@ -3,6 +3,7 @@ from app.core.config import Settings
 
 def test_default_embedding_settings_match_current_vector_schema() -> None:
     settings = Settings(
+        _env_file=None,
         database_url="postgresql://test:test@localhost:5432/test",
         secret_key="test-secret",
     )
@@ -10,6 +11,7 @@ def test_default_embedding_settings_match_current_vector_schema() -> None:
     assert settings.embedding_model == "nvidia/nemotron-3-embed-1b"
     assert settings.embedding_base_url == "https://integrate.api.nvidia.com/v1"
     assert settings.embedding_dimensions == 2048
+    assert settings.embedding_batch_size == 32
     assert settings.embedding_v2_enabled is False
     assert settings.reranker_enabled is False
     assert settings.reranker_candidate_k == 20
@@ -27,6 +29,7 @@ def test_default_embedding_settings_match_current_vector_schema() -> None:
 
 def test_celery_urls_can_override_redis_url() -> None:
     settings = Settings(
+        _env_file=None,
         database_url='postgresql://test:test@localhost:5432/test',
         secret_key='test-secret',
         redis_url='redis://redis:6379/0',

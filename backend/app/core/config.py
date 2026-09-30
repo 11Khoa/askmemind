@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     embedding_model: str = "nvidia/nemotron-3-embed-1b"
     embedding_base_url: str = "https://integrate.api.nvidia.com/v1"
     embedding_dimensions: int = 2048
+    embedding_batch_size: int = Field(default=32, ge=1, le=128)
     nvidia_api_key: str = ""
     embedding_v2_enabled: bool = False
 

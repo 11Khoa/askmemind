@@ -44,6 +44,7 @@ def test_embedding_service_builds_nvidia_embedding_service(monkeypatch) -> None:
         embedding_base_url="https://example.com/v1",
         embedding_model="test-embedding-model",
         embedding_dimensions=1024,
+        embedding_batch_size=16,
     )
     monkeypatch.setattr(dependencies, "settings", fake_settings)
 
@@ -57,6 +58,7 @@ def test_embedding_service_builds_nvidia_embedding_service(monkeypatch) -> None:
     assert service.provider.api_key == "nvidia-api-key"
     assert service.provider.base_url == "https://example.com/v1"
     assert service.provider.model == "test-embedding-model"
+    assert service.provider.batch_size == 16
 
 
 def test_get_embedding_service_raises_when_nvidia_api_key_is_missing(monkeypatch) -> None:
@@ -66,6 +68,7 @@ def test_get_embedding_service_raises_when_nvidia_api_key_is_missing(monkeypatch
         embedding_base_url="https://example.com/v1",
         embedding_model="test-embedding-model",
         embedding_dimensions=1024,
+        embedding_batch_size=16,
     )
     monkeypatch.setattr(dependencies, "settings", fake_settings)
 
@@ -83,6 +86,7 @@ def test_get_embedding_service_raises_for_unsupport_provider(monkeypatch) -> Non
         embedding_base_url="https://example.com/v1",
         embedding_model="test-embedding-model",
         embedding_dimensions=1024,
+        embedding_batch_size=16,
     )
     monkeypatch.setattr(dependencies, "settings", fake_settings)
 
