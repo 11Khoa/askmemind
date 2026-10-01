@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Analytics } from '@vercel/analytics/react'
 
 import { AuthView } from './AuthView'
 import { Workspace } from './Workspace'
@@ -22,8 +23,18 @@ export default function AppRoot() {
   }
 
   if (!token) {
-    return <AuthView onAuthenticated={authenticate} />
+    return (
+      <>
+        <AuthView onAuthenticated={authenticate} />
+        <Analytics />
+      </>
+    )
   }
 
-  return <Workspace token={token} onLogout={logout} />
+  return (
+    <>
+      <Workspace token={token} onLogout={logout} />
+      <Analytics />
+    </>
+  )
 }
