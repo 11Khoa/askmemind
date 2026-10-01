@@ -26,7 +26,7 @@
 
 html, body, #root { width: 100%; min-height: 100%; }
 
-body { margin: 0; min-width: 320px; min-height: 100vh; }
+body { margin: 0; min-width: 320px; min-height: 100dvh; }
 
 button, input, textarea, select { font: inherit; }
 
@@ -117,7 +117,7 @@ select:focus-visible {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .auth-shell {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   grid-template-columns: minmax(420px, 1.08fr) minmax(420px, 0.92fr);
   background: var(--surface);
@@ -125,7 +125,7 @@ select:focus-visible {
 
 .auth-product {
   position: relative;
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   padding: 42px 8%;
@@ -213,7 +213,7 @@ select:focus-visible {
 }
 
 .auth-panel {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   place-items: center;
   padding: 48px;
@@ -303,7 +303,7 @@ select:focus-visible {
 }
 
 .workspace {
-  height: 100vh;
+  height: 100dvh;
   display: grid;
   grid-template-columns: 256px minmax(480px, 1fr) 0;
   overflow: hidden;
@@ -1083,7 +1083,7 @@ select:focus-visible {
 .documents-foot strong { color: #626b67; }
 
 .loading-screen {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   place-content: center;
   justify-items: center;
@@ -1096,6 +1096,59 @@ select:focus-visible {
 
 .mobile-only,
 .mobile-scrim { display: none; }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: rgb(15 23 42 / 0.35);
+}
+
+.modal {
+  width: min(420px, calc(100vw - 32px));
+  padding: 18px;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgb(0 0 0 / 0.24);
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.modal input {
+  width: 100%;
+  margin-top: 16px;
+  padding: 11px 12px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.modal-actions button{
+    border: 1px solid var(--teal);
+    color: white;
+    background: var(--teal);
+    font-weight: 500;
+    border-radius: 4px;
+    padding: 4px 14px;
+    &:hover{
+      background: var(--teal-dark);
+    }
+}
 
 @media (max-width: 1100px) {
   .workspace { grid-template-columns: 236px minmax(430px, 1fr); }
@@ -1116,11 +1169,15 @@ select:focus-visible {
 }
 
 @media (max-width: 760px) {
+  .auth-form input{
+    font-size: 16px;
+  }
+  
   .auth-shell { display: block; }
 
   .auth-product { display: none; }
 
-  .auth-panel { min-height: 100vh; padding: 32px 22px; }
+  .auth-panel { min-height: 100dvh; padding: 32px 22px; }
 
   .mobile-brand { display: flex; margin-bottom: 70px; }
 
@@ -1152,7 +1209,7 @@ select:focus-visible {
 
   .mobile-only { display: inline-grid; }
 
-  .conversation { height: calc(100vh - 12px); grid-template-rows: 62px minmax(0, 1fr) auto auto auto; }
+  .conversation { height: calc(100dvh - 12px); grid-template-rows: 62px minmax(0, 1fr) auto auto auto; }
 
   .conversation-head { padding: 0 12px; }
 

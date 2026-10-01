@@ -17,6 +17,7 @@ import { DocumentsPanel } from './components/DocumentsPanel'
 import { MessageList } from './components/MessageList'
 import { NoticeBanner } from './components/NoticeBanner'
 import { Sidebar } from './components/Sidebar'
+import { NewChatModal } from "./components/NewChatModal";
 import type { Notice } from './types'
 
 type WorkspaceProps = { token: string; onLogout: () => void }
@@ -56,6 +57,7 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [documentsOpen, setDocumentsOpen] = useState(true)
   const [citationOpen, setCitationOpen] = useState<string | null>(null)
+  const [newChatOpen, setNewChatOpen] = useState(false)
 
   const handleError = useCallback((caught: unknown) => {
     if (caught instanceof ApiError && caught.status === 401) {
@@ -146,6 +148,11 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
     setSelectedChatId(chatId)
     setSidebarOpen(false)
     setCitationOpen(null)
+  }
+
+  async function createNamedChat(title: string | null) {
+    setNewChatOpen(false)
+    await createChat(title)
   }
 
   async function createChat(title: string | null = null) {
@@ -320,7 +327,7 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
         selectedChatId={selectedChatId}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
-        onNewChat={() => void createChat()}
+        onNewChat={() => void setNewChatOpen(true)}
         onSelectChat={selectChat}
         onLogout={onLogout}
       />
@@ -369,6 +376,12 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
         onClose={() => setDocumentsOpen(false)}
         onSelectDocument={setSelectedDocumentId}
         onUpload={(file) => void uploadDocument(file)}
+      />
+
+      <NewChatModal
+        open={newChatOpen}
+        onClose={() => setNewChatOpen(false)}
+        onCreate={(title) => void createNamedChat(title)}
       />
     </main>
   )
