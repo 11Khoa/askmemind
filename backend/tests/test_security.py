@@ -13,9 +13,9 @@ def test_create_access_token_can_be_decoded() -> None:
     subject = str(user_id)
 
     token = create_access_token(subject=subject)
-    decoded_subject = decode_access_token(token=token)
+    decoded_payload = decode_access_token(token=token)
 
-    assert decoded_subject == subject
+    assert decoded_payload.subject == subject
 
 
 def test_decode_access_token_rejects_expired_token() -> None:
@@ -77,3 +77,47 @@ def test_decode_access_token_rejects_missing_subject() -> None:
 
     with pytest.raises(ValueError, match="Token subject must be a string"):
         decode_access_token(token=token)
+
+
+def test_create_access_token_includes_jti_and_iat() -> None:
+    user_id = uuid.uuid4()
+    subject = str(user_id)
+
+    token = create_access_token(subject)
+
+    payload = jwt.decode(
+        token,
+        settings.secret_key,
+        algorithms=[settings.jwt_algorithm],
+    )
+
+    assert payload["sub"] == subject
+    assert isinstance(payload["jti"], str)
+    assert isinstance(payload["iat"], int)
+    assert isinstance(payload["exp"], int)
+
+
+def test_decode_access_token_returns_payload() -> None:
+    user_id = uuid.uuid4()
+    subject = str(user_id)
+    token = create_access_token(subject)
+
+    payload = decode_access_token(token)
+
+    assert payload.subject == subject
+    assert payload.jti
+    assert payload.expires_at.tzinfo is not None
+
+
+def test_decode_access_token_requires_jti() -> None:
+    token = jwt.encode(
+        {
+            "sub": "user-id",
+            "exp": 9999999999,
+        },
+        settings.secret_key,
+        algorithm=settings.jwt_algorithm,
+    )
+
+    with pytest.raises(ValueError, match="Token jti must be a string"):
+        decode_access_token(token)

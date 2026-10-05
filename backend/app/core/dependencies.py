@@ -73,8 +73,8 @@ def get_current_user(
     db: Annotated[Session, Depends(get_db)],
 ) -> User:
     try:
-        subject = decode_access_token(token)
-        user_id = uuid.UUID(subject)
+        token_payload = decode_access_token(token)
+        user_id = uuid.UUID(token_payload.subject)
     except (ValueError, jwt.PyJWTError) as error:
         raise HTTPException(
             status_code=401,
