@@ -1,457 +1,388 @@
 # AskMeMind
-<img width="881" height="554" alt="image" src="https://github.com/user-attachments/assets/17b2fa5c-f525-4fd0-90fb-698a643ce36c" />
 
-<br>
-AskMeMind is a PDF question-answering platform built around Retrieval-Augmented Generation (RAG). Users can upload PDFs, extract searchable text, generate embeddings, retrieve relevant document chunks, and ask questions with citation-aware answers.  
-<br><br>
+**Citation-aware question answering over your PDFs, built as a production-minded RAG system.**
 
-[![Architecture diagram of 11khoa/askmemind](https://gitdiagram.com/11khoa/askmemind/diagram.png)](https://gitdiagram.com/11khoa/askmemind?utm_source=readme&utm_medium=picture)
-[![Architecture diagram](https://gitdiagram.com/diagram-badge.svg)](https://gitdiagram.com/11khoa/askmemind?utm_source=readme&utm_medium=badge)
+[![CI](https://github.com/11Khoa/askmemind/actions/workflows/ci.yml/badge.svg)](https://github.com/11Khoa/askmemind/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.13-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-pgvector-336791)
+![React](https://img.shields.io/badge/React-19-61dafb)
 
-## Highlights
+<img width="881" height="554" alt="AskMeMind screenshot" src="https://github.com/user-attachments/assets/17b2fa5c-f525-4fd0-90fb-698a643ce36c" />
 
-- Authenticated PDF upload and document management
-- Page-aware PDF extraction with PyMuPDF
-- Chunking with document, page, and character traceability
-- NVIDIA NIM embeddings stored in PostgreSQL with pgvector
-- Vector similarity retrieval scoped to the authenticated user
-- Groq chat-completion integration for grounded answers
-- Chat history persistence with assistant citation metadata
-- Alembic migrations for schema evolution
-- Docker Compose setup for FastAPI and PostgreSQL/pgvector
-- Pytest coverage for core services, repositories, routers, and providers
+> **Live demo:** https://askmemind.fullfact.xyz
+> <!-- Add a short GIF here: upload PDF -> status turns ready -> streamed answer with citations -->
 
-## Status
+AskMeMind lets users upload PDFs and ask questions in English or Vietnamese. Every answer is grounded in retrieved passages and links back to the exact page it came from. When the evidence is weak, the system says it does not know instead of guessing.
 
-AskMeMind is a production-oriented RAG portfolio backend. It implements the
-reliability, evaluation, and operational boundaries expected from an applied AI
-service while keeping asynchronous jobs and distributed infrastructure out of
-scope.
+The project focuses on the parts of RAG that usually decide whether it works outside a demo: **measured retrieval quality, guardrails against hallucination, asynchronous ingestion, real-time status updates, and observability.**
 
-Implemented:
+---
 
-- JWT-authenticated, user-isolated document and chat workflows
-- Size-limited PDF upload, signature validation, extraction, and chunking
-- NVIDIA embeddings in PostgreSQL with pgvector
-- PostgreSQL full-text search with a GIN index
-- Vector, lexical, and weighted RRF hybrid retrieval
-- Configurable second-stage heuristic reranking
-- Confidence fallback, citation validation, and prompt-injection isolation
-- Bounded self-correcting retrieval with explicit search and rewrite tools
-- JSON request and RAG stage logs with request IDs, latency, and token usage
-- Reproducible retrieval evaluation with JSON, CSV, and Markdown reports
-- Liveness/readiness endpoints and Docker health checks
-- Unit, workflow, repository, and API integration tests
+## Table of Contents
 
-Intentionally out of scope:
+- [Features](#features)
+- [Architecture](#architecture)
+- [How a Question Is Answered](#how-a-question-is-answered)
+- [Evaluation](#evaluation)
+- [Tech Stack](#tech-stack)
+- [Quick Start (Docker)](#quick-start-docker)
+- [Local Development](#local-development)
+- [Configuration](#configuration)
+- [API Overview](#api-overview)
+- [Testing](#testing)
+- [Deployment](#deployment)
+- [Reliability and Observability](#reliability-and-observability)
+- [Security](#security)
+- [Known Limitations](#known-limitations)
+- [Roadmap](#roadmap)
+- [Project Structure](#project-structure)
 
-- Horizontally scaled document workers beyond the bundled single Celery worker
-- Streaming assistant responses
-- Object storage and horizontal worker scaling
-- A full production frontend
+---
 
-The `frontend/streamlit` directory contains a lightweight Streamlit client for local interaction. The core product surface is still the FastAPI backend.
+## Features
 
-## Tech Stack
+**Retrieval and answering**
+- Page-aware PDF extraction (PyMuPDF) with chunks that keep page and character offsets, so citations are traceable.
+- Three retrieval strategies: pgvector similarity, PostgreSQL full-text search (GIN index), and **hybrid search using weighted Reciprocal Rank Fusion (RRF)**.
+- Optional heuristic reranker over a larger candidate pool.
+- Optional bounded retrieval retry: when evidence is weak, the query is rewritten into keywords and retried (capped number of attempts, no extra LLM call).
+- Streaming answers over Server-Sent Events (SSE).
 
-- Python 3.13+
-- FastAPI
-- SQLAlchemy
-- Alembic
-- PostgreSQL
-- pgvector
-- PyMuPDF
-- NVIDIA NIM embeddings
-- Groq chat completions
-- Streamlit client prototype
-- Pytest
-- Docker Compose
+**Reliability and safety**
+- Confidence guardrail: low-evidence questions return a stable "I do not know" response without calling the LLM.
+- Citation validation: answers must cite `[Source N]` markers that exist in the built context.
+- Prompt-injection isolation: document text is delimited as untrusted data in the generation prompt.
+- Per-user data isolation on every retrieval query.
+
+**Platform**
+- JWT authentication, size and signature-checked PDF uploads.
+- Asynchronous document processing with Celery and Redis; document status is pushed to the browser in real time via Redis pub/sub and SSE.
+- Chat history with persisted citation metadata.
+- Structured JSON logs with request IDs, stage latency and token usage; liveness and readiness probes.
+- Alembic migrations, Docker Compose stack, GitHub Actions CI against a real pgvector database.
+- React client (Vite, TypeScript, i18n) and a lightweight Streamlit client.
+
+---
 
 ## Architecture
 
-~~~text
-Client
-  -> FastAPI router
-  -> Service layer
-  -> Repository layer
-  -> PostgreSQL / pgvector
-~~~
+```mermaid
+flowchart LR
+    U[React client] -->|HTTPS| N[Nginx]
+    N --> API[FastAPI]
+    API --> PG[(PostgreSQL + pgvector)]
+    API -->|enqueue| R[(Redis)]
+    R --> W[Celery worker]
+    W -->|extract, chunk| PG
+    W -->|embed passages| NV[NVIDIA NIM embeddings]
+    W -->|publish status| R
+    R -->|pub/sub| API
+    API -->|SSE: document status| U
+    API -->|embed query| NV
+    API -->|generate answer| G[Groq LLM]
+    API -->|SSE: answer tokens| U
+```
 
-The backend follows clean architecture principles:
+The backend is layered so that external providers can be swapped without touching business rules:
 
-- Routers handle HTTP input, output, validation boundaries, and status codes.
-- Services own business rules, orchestration, and RAG workflow decisions.
-- Repositories isolate SQLAlchemy database access.
-- Provider classes isolate external AI API calls.
-- Models and schemas are kept separate.
+| Layer | Responsibility |
+|---|---|
+| **Routers** | HTTP input and output, validation boundaries, status codes |
+| **Services** | Business rules, RAG orchestration, guardrails |
+| **Repositories** | All SQLAlchemy and SQL access |
+| **Providers** | External AI APIs (NVIDIA embeddings, Groq chat) behind small interfaces |
 
-## RAG Pipeline
+---
 
-~~~text
-PDF upload
-  -> validate size, content type, and PDF signature
-  -> extract page-aware text
-  -> chunk and embed passages
-  -> persist text, metadata, and vectors
-  -> vector search + PostgreSQL FTS
-  -> weighted reciprocal-rank fusion
-  -> optional bounded query rewrite and retry
-  -> optional heuristic reranking
-  -> confidence guardrail
-  -> build citation-aware context
-  -> grounded LLM answer
-  -> validate cited source numbers
-  -> persist answer and citations
-~~~
+## How a Question Is Answered
 
-Vector search handles semantic similarity; PostgreSQL full-text search handles
-exact terms, names, and abbreviations. Hybrid mode combines their rank positions
-with weighted reciprocal-rank fusion, so incompatible raw score scales never
-need to be normalized together. The optional reranker then scores a larger
-candidate pool using keyword overlap, original rank, and phrase matches.
+```mermaid
+flowchart TD
+    Q[Question] --> R1[Retrieve: vector + full-text]
+    R1 --> F[Weighted RRF fusion]
+    F --> A{Evidence strong enough?}
+    A -- no, retries left --> RW[Rewrite query to keywords] --> R1
+    A -- no --> NA[Return 'I do not know']
+    A -- yes --> RR[Optional heuristic rerank]
+    RR --> CB[Build citation-aware context]
+    CB --> LLM[Grounded LLM answer]
+    LLM --> V{Citations valid?}
+    V -- no --> NA
+    V -- yes --> OUT[Answer + page citations]
+```
 
-When agentic retrieval is enabled, a Python state machine calls the retrieval
-tool, grades the evidence, rewrites weak queries into deterministic keywords,
-and retries at most the configured number of times. It keeps the strongest
-result seen and logs each decision. This avoids unbounded loops and avoids an
-extra LLM call solely for query rewriting.
+- **Why RRF:** vector distances and full-text ranks live on different scales. Fusing by rank position avoids normalizing incompatible scores.
+- **Why a deterministic rewriter:** the retry step strips stop words (English and Vietnamese) instead of calling another model, which keeps it cheap, predictable, and easy to test.
+- **Reranker:** a transparent scoring function (keyword overlap, original rank, phrase match), not a cross-encoder. It is off by default and meant to be compared against a model-based reranker later.
 
-The answer path is retrieval-first. Empty or low-confidence evidence returns a
-stable no-answer response without calling the LLM. Generated answers must cite
-source markers that exist in the built context; invalid citations also trigger
-the fallback. Document context is delimited as untrusted data in the generation
-prompt.
+---
 
 ## Evaluation
 
-Run the complete retrieval comparison from the backend directory:
+Retrieval quality is measured, not assumed. The runner compares methods on a bilingual dataset and writes JSON, CSV and Markdown reports.
 
 ```bash
-python -m evaluation.run_evaluation
+cd backend
+python -m evaluation.run_evaluation                      # all methods
+python -m evaluation.run_evaluation --methods vector hybrid --top-k 5
+python -m evaluation.run_evaluation --with-answers       # also calls the LLM
 ```
 
-The command evaluates vector, PostgreSQL full-text, hybrid, and
-hybrid-plus-reranker retrieval. It writes per-method JSON, CSV, and Markdown
-reports plus comparison files to `backend/evaluation/reports/`. Retrieval
-reports include Hit@K, MRR, Recall@K, Precision@K, retrieval latency, and
-retrieved chunk count. Answer success is included when
-`RUN_ANSWER_EVALUATION` is enabled.
+Available methods: `vector`, `fts_search`, `hybrid`, `hybrid_reranked`. Reports are written to `backend/evaluation/reports/`.
 
-The last successful pre-latency benchmark used 18 English and Vietnamese
-questions at `K=5`:
+**Latest benchmark** (18 questions, 9 English and 9 Vietnamese, K = 5):
 
-| Method | Hit@5 | MRR | Recall@5 | Precision@5 | Latency |
-|---|---:|---:|---:|---:|---:|
-| Vector | 100.00% | 0.64 | 75.00% | 47.78% | Not captured |
-| PostgreSQL FTS | 11.11% | 0.11 | 5.56% | 11.11% | 9.93 ms |
-| Hybrid RRF | 100.00% | 0.71 | 75.00% | 47.78% | Not captured |
-| Hybrid + reranker | Pending provider availability | - | - | - | - |
+| Method | Hit@5 | MRR | Recall@5 | Precision@5 |
+|---|---:|---:|---:|---:|
+| Vector | 100.00% | 0.64 | 75.00% | 47.78% |
+| PostgreSQL full-text only | 11.11% | 0.11 | 5.56% | 11.11% |
+| **Hybrid (RRF)** | **100.00%** | **0.71** | 75.00% | 47.78% |
+| Hybrid + reranker | not yet benchmarked | | | |
 
-## Reliability and Observability
+With hybrid retrieval, citation relevance and citation integrity were both 100% on this set. By question language, hybrid MRR was 0.79 for English and 0.62 for Vietnamese.
 
-Every HTTP response includes an `X-Request-ID`. JSON logs carry that request ID
-and the authenticated user ID across retrieval, reranking, generation, and
-fallback events. Stage logs include latency, retrieval method, candidate counts,
-confidence, fallback reason, citation errors, and provider token usage. Raw
-questions and document text are deliberately excluded from agent decision logs.
+**How to read these numbers.** The dataset is small and targets a single long document, so Hit@5 is already saturated and MRR is the metric that separates methods. Treat the benchmark as a regression check for retrieval changes, not as a claim about general accuracy. The strict AND semantics of PostgreSQL `plainto_tsquery` explain why full-text search alone performs poorly on natural-language questions; it contributes mainly as the lexical half of the hybrid.
 
-Operational probes:
+To reproduce locally, ingest the same PDF and update the `user_id` fields in `backend/evaluation/datasets/rag_eval.json`.
 
-- `GET /health/live` confirms that the API process can serve requests.
-- `GET /health/ready` runs `SELECT 1` and returns 503 when PostgreSQL is unavailable.
-- Docker Compose waits for PostgreSQL readiness and health-checks the backend.
+---
 
-## Project Structure
+## Tech Stack
 
-~~~text
-backend/app/
-  core/          configuration, security, dependencies, unit of work
-  agents/        bounded retrieval state machine and tool boundaries
-  models/        SQLAlchemy ORM models
-  repositories/  database access layer
-  routers/       FastAPI HTTP endpoints
-  schemas/       Pydantic request and response schemas
-  services/      business logic, RAG pipeline, provider integrations
+| Area | Technology |
+|---|---|
+| API | Python 3.13, FastAPI, Pydantic, SQLAlchemy, Alembic |
+| Data | PostgreSQL 16, pgvector, PostgreSQL full-text search (GIN) |
+| Async | Celery, Redis (broker, pub/sub) |
+| AI | NVIDIA NIM embeddings (`nemotron-3-embed-1b`), Groq (`openai/gpt-oss-120b`) |
+| Documents | PyMuPDF |
+| Frontend | React 19, Vite, TypeScript, i18next, react-markdown; Streamlit client |
+| Quality | pytest, GitHub Actions |
+| Ops | Docker, Docker Compose, Nginx |
 
-backend/evaluation/ datasets, metrics, runner, and generated reports
-backend/tests/   pytest test suite
-frontend/        Streamlit client prototype
-http/            local smoke-test requests and sample PDFs
-deploy/          deployment examples such as Nginx reverse proxy config
-~~~
+---
+
+## Quick Start (Docker)
+
+The Compose stack runs PostgreSQL (pgvector), Redis, the API, and a Celery worker.
+
+```bash
+git clone https://github.com/11Khoa/askmemind.git
+cd askmemind
+cp .env.example .env
+```
+
+Edit `.env` and set at least:
+
+```env
+POSTGRES_PASSWORD=change-me
+DATABASE_URL=postgresql+psycopg://askmemind:change-me@postgres:5432/askmemind
+SECRET_KEY=<long random string>
+NVIDIA_API_KEY=<your NVIDIA API key>
+GROQ_API_KEY=<your Groq API key>
+
+# Recommended for best retrieval quality (see Configuration)
+EMBEDDING_V2_ENABLED=True
+HYBRID_SEARCH_ENABLED=True
+```
+
+Start the stack and apply migrations:
+
+```bash
+docker compose up -d --build
+docker compose exec backend alembic upgrade head
+```
+
+The API is now available at `http://127.0.0.1:8000` (OpenAPI docs at `/docs`). Run the web client:
+
+```bash
+cd frontend/react
+cp .env.example .env     # leave VITE_API_URL empty to use the Vite /api proxy
+npm install
+npm run dev              # http://localhost:5173
+```
+
+Requires Node.js 20.19 or newer. To use the Streamlit client instead: `cd frontend/streamlit && pip install -r requirements.txt && streamlit run app.py`.
+
+---
+
+## Local Development
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r backend/requirements.txt
+
+docker compose up -d postgres redis      # infrastructure only
+cp .env.example .env                     # point DATABASE_URL and REDIS_URL to localhost
+
+cd backend
+alembic upgrade head
+python -m uvicorn app.main:app --reload                       # API
+celery -A app.core.celery_app worker --loglevel=INFO          # worker (second terminal)
+```
+
+---
+
+## Configuration
+
+All settings are environment variables (see `.env.example`).
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | required | PostgreSQL connection string |
+| `SECRET_KEY` | required | JWT signing key |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | Token lifetime |
+| `ENABLE_REGISTRATION` | `True` (`False` in `.env.example`) | Allow new sign-ups |
+| `NVIDIA_API_KEY` / `GROQ_API_KEY` | empty | Provider credentials |
+| `EMBEDDING_MODEL` / `EMBEDDING_DIMENSIONS` | `nvidia/nemotron-3-embed-1b` / `2048` | Embedding model (must match the v2 vector columns) |
+| `EMBEDDING_V2_ENABLED` | `False` | Use v2 vectors for retrieval. When `False`, retrieval falls back to full-text only |
+| `HYBRID_SEARCH_ENABLED` | `False` | Fuse vector and full-text results with RRF (requires v2) |
+| `RERANKER_ENABLED` / `RERANKER_CANDIDATE_K` | `False` / `20` | Heuristic second-stage reranking |
+| `AGENTIC_RETRIEVAL_ENABLED` | `False` | Bounded query-rewrite retry loop |
+| `AGENTIC_RETRIEVAL_MAX_RETRIES` / `_MIN_CONFIDENCE` | `1` / `0.35` | Retry limits |
+| `RETRIEVAL_MIN_CONFIDENCE` | `0.05` | Below this, return the no-answer response |
+| `CITATION_VALIDATION_ENABLED` | `True` | Reject answers with invalid citations |
+| `LLM_MODEL` / `LLM_MAX_TOKENS` | `openai/gpt-oss-120b` / `500` | Generation settings |
+| `MAX_UPLOAD_SIZE_MB` | `25` | Upload limit |
+| `REDIS_URL` | `redis://localhost:6379/0` | Celery broker and pub/sub |
+
+**Why the flags default to off.** The retrieval stack moved from 1024-dimension embeddings to 2048-dimension v2 embeddings using an expand-and-backfill rollout so existing data is never broken. New installations can enable `EMBEDDING_V2_ENABLED` and `HYBRID_SEARCH_ENABLED` immediately. Existing installations should follow the runbook in [`backend/docs/embedding_v2_rollout.md`](backend/docs/embedding_v2_rollout.md) to backfill vectors first.
+
+Enable the reranker and retry loop only after running the evaluation on your own documents.
+
+---
 
 ## API Overview
 
-Auth:
+| Group | Endpoint | Description |
+|---|---|---|
+| Auth | `POST /auth/register`, `POST /auth/login`, `GET /auth/me` | Account and token |
+| Documents | `POST /documents/upload` | Validate and enqueue a PDF (returns `202`) |
+| | `GET /documents`, `GET /documents/{id}` | List and inspect documents |
+| | `GET /documents/events` | SSE stream of document status changes |
+| Chats | `GET /chats`, `POST /chats` | Conversations |
+| | `GET /chats/{id}/messages`, `POST /chats/{id}/messages` | Message history |
+| | `POST /chats/{id}/questions` | Ask a question (single response) |
+| | `POST /chats/{id}/questions/stream` | Ask a question (SSE: `token`, `replace`, `final`, `error`) |
+| Health | `GET /health/live`, `GET /health/ready` | Liveness and readiness (`SELECT 1`) |
 
-- `POST /auth/register`
-- `POST /auth/login`
-- `GET /auth/me`
+Interactive documentation is served at `/docs`. A ready-made request collection is in `http/local-smoke.http`.
 
-Documents:
+---
 
-- `POST /documents/upload`
-- `GET /documents`
-- `GET /documents/{document_id}`
+## Testing
 
-Chats:
-
-- `POST /chats`
-- `GET /chats`
-- `POST /chats/{chat_id}/messages`
-- `GET /chats/{chat_id}/messages`
-- `POST /chats/{chat_id}/questions`
-
-Health:
-
-- `GET /health/live`
-- `GET /health/ready`
-
-After the backend is running, the OpenAPI docs are available at:
-
-~~~text
-http://127.0.0.1:8000/docs
-~~~
-
-## Quick Start With Docker
-
-Create a local `.env` file:
-
-~~~bash
-cp .env.example .env
-~~~
-
-Fill the required values:
-
-~~~env
-POSTGRES_USER=askmemind
-POSTGRES_PASSWORD=change-me
-POSTGRES_DB=askmemind
-
-DATABASE_URL=postgresql+psycopg://askmemind:change-me@postgres:5432/askmemind
-SECRET_KEY=change-me-to-a-long-random-secret
-NVIDIA_API_KEY=replace-with-nvidia-api-key
-GROQ_API_KEY=replace-with-groq-api-key
-BACKEND_CORS_ORIGINS=http://localhost:3000
-~~~
-
-Start the stack:
-
-~~~bash
-docker compose up -d --build
-~~~
-
-Run migrations:
-
-~~~bash
-docker compose exec backend alembic upgrade head
-~~~
-
-Check the active migration:
-
-~~~bash
-docker compose exec backend alembic current
-~~~
-
-View backend logs:
-
-~~~bash
-docker compose logs backend --tail=80
-~~~
-
-## Local Python Development
-
-Use this flow when developing or running tests outside Docker.
-
-Create and activate a virtual environment:
-
-~~~bash
-python3 -m venv .venv
-source .venv/bin/activate
-~~~
-
-Install backend dependencies:
-
-~~~bash
-pip install -r backend/requirements.txt
-~~~
-
-Start PostgreSQL with pgvector:
-
-~~~bash
-docker compose up -d postgres
-~~~
-
-Create `.env` from `.env.example` and point `DATABASE_URL` to localhost:
-
-~~~env
-DATABASE_URL=postgresql+psycopg://askmemind:change-me@localhost:5432/askmemind
-SECRET_KEY=replace-with-local-secret
-NVIDIA_API_KEY=replace-with-nvidia-api-key
-GROQ_API_KEY=replace-with-groq-api-key
-~~~
-
-Run migrations:
-
-~~~bash
+```bash
 cd backend
-../.venv/bin/alembic upgrade head
-~~~
+python -m pytest -q
+```
 
-Start the API:
+The suite (40+ modules) covers services, repositories, routers, providers, guardrails, retrieval, reranking, the retrieval agent, and the evaluation metrics. CI runs Alembic migrations and the full suite against a `pgvector/pgvector:pg16` service on every push and pull request.
 
-~~~bash
-cd backend
-../.venv/bin/python -m uvicorn app.main:app --reload
-~~~
+---
 
-## Configuration Reference
+## Deployment
 
-Embedding settings must stay aligned with the database vector schema:
+Recommended production layout: Nginx (HTTPS) in front of the API on `127.0.0.1`, with PostgreSQL and Redis not exposed publicly.
 
-~~~env
-EMBEDDING_PROVIDER=nvidia
-EMBEDDING_MODEL=nvidia/llama-nemotron-embed-1b-v2
-EMBEDDING_BASE_URL=https://integrate.api.nvidia.com/v1
-EMBEDDING_DIMENSIONS=1024
-~~~
+**Important: disable proxy buffering for the streaming route.** Nginx buffers upstream responses by default, which makes streamed answers arrive all at once instead of token by token. Add a dedicated location above your catch-all `location /`:
 
-LLM settings:
+```nginx
+location ~ ^/chats/.+/questions/stream {
+    proxy_pass http://127.0.0.1:8000;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_buffering off;
+    proxy_cache off;
+    gzip off;
+    proxy_read_timeout 300s;
+}
+```
 
-~~~env
-LLM_PROVIDER=groq
-LLM_MODEL=openai/gpt-oss-120b
-LLM_BASE_URL=https://api.groq.com/openai/v1
-LLM_MAX_TOKENS=500
-~~~
+The same applies to `/documents/events`. The API already sends `X-Accel-Buffering: no` on that route. A complete example with upload and rate limits is in `deploy/nginx/askmemind.conf.example`.
 
-Retrieval, reliability, and agent settings:
+Checklist:
+- Keep `.env` private; use a long random `SECRET_KEY`.
+- Set `BACKEND_CORS_ORIGINS` to your frontend domain.
+- The API and the Celery worker must share the upload directory (`storage/uploads`) unless you add object storage.
+- Back up PostgreSQL and `storage/uploads`.
+- Avoid `docker compose down -v` unless you intend to delete database volumes.
 
-~~~env
-HYBRID_SEARCH_ENABLED=false
-RERANKER_ENABLED=false
-RERANKER_CANDIDATE_K=20
-RETRIEVAL_MIN_CONFIDENCE=0.05
-CITATION_VALIDATION_ENABLED=true
-AGENTIC_RETRIEVAL_ENABLED=false
-AGENTIC_RETRIEVAL_MAX_RETRIES=1
-AGENTIC_RETRIEVAL_MIN_CONFIDENCE=0.35
-~~~
+---
 
-The hybrid, reranking, and agentic features are independent flags. Enable them
-after running the evaluation command against your own documents and questions.
+## Reliability and Observability
 
-Storage settings:
+- Every response carries an `X-Request-ID`; JSON logs include the request ID and user ID across retrieval, reranking, generation and fallback events.
+- Stage logs record latency, retrieval method, candidate counts, confidence, fallback reason, citation errors and provider token usage. Raw questions and document text are intentionally excluded from agent decision logs.
+- `/health/live` and `/health/ready` back the Docker health checks; readiness returns `503` when PostgreSQL is unavailable.
+- Documents left in `processing` after a restart are marked `processing_failed`.
 
-~~~env
-MAX_UPLOAD_SIZE_MB=25
-UPLOAD_DIR=storage/uploads
-TEMP_DIR=storage/temp
-~~~
+---
 
-## Tests
+## Security
 
-Run the backend test suite:
+- Passwords are hashed with a modern adaptive algorithm; sessions use short-lived JWTs.
+- Every retrieval query is joined on the owning user, so users cannot read each other's chunks.
+- Uploads are limited by size, content type and `%PDF-` signature; files are stored under generated names.
+- Document context is delimited as untrusted input in the prompt, and the model is instructed never to follow instructions found inside documents.
+- Never commit `.env` or credentials; rotate any secret that may have been exposed.
 
-~~~bash
-cd backend
-../.venv/bin/python -m pytest -q
-~~~
+---
 
-## Smoke Test
+## Known Limitations
 
-Use the local smoke file:
+- Document deletion is not implemented yet.
+- Chunking is fixed-size (1000 characters, 200 overlap) and does not follow sentence or section boundaries.
+- Citation validation is enforced on the non-streaming endpoint; the streaming endpoint emits tokens before validation.
+- Real-time status updates use Redis pub/sub, which does not replay missed events. After a dropped connection the client should refresh the document list.
+- The reranker and query rewriter are heuristic, and the evaluation set covers one document. See [Evaluation](#evaluation).
+- Uploads use local disk rather than object storage.
+- Metrics export and distributed tracing are not configured; logs go to stdout.
 
-~~~text
-http/local-smoke.http
-~~~
+---
 
-Recommended flow:
+## Roadmap
 
-1. Register or login.
-2. Copy `access_token` into `@accessToken`.
-3. Create a chat.
-4. Copy the chat `id` into `@chatId`.
-5. Upload a PDF.
-6. Copy the document `id` into `@documentId`.
-7. Ask a RAG question with `POST /chats/{chat_id}/questions`.
-8. Verify persisted messages with `GET /chats/{chat_id}/messages`.
+- Document deletion with file and chunk cleanup, then object storage.
+- Larger, multi-document evaluation set with answer-faithfulness scoring.
+- Compare the heuristic reranker against a cross-encoder.
+- SSE reconnect and state resync on the client.
+- Sentence- and section-aware chunking.
+- Prometheus metrics and OpenTelemetry traces.
 
-The RAG smoke request calls real external services:
+---
 
-- NVIDIA API for passage and query embeddings
-- PostgreSQL/pgvector for retrieval
-- Groq API for answer generation
+## Project Structure
 
-## Deployment Notes
+```text
+backend/
+  app/
+    agents/         bounded retrieval state machine
+    core/           config, security, dependencies, Celery, logging
+    models/         SQLAlchemy models
+    repositories/   database access
+    routers/        HTTP endpoints
+    schemas/        Pydantic request and response models
+    services/       RAG pipeline, retrieval, guardrails, providers
+    tasks/          Celery tasks
+  alembic/          database migrations
+  evaluation/       dataset, metrics, runner, generated reports
+  docs/             operational runbooks
+  tests/            pytest suite
+frontend/
+  react/            web client (Vite, TypeScript)
+  streamlit/        lightweight client
+deploy/nginx/       reverse proxy example
+http/               smoke-test requests and sample PDFs
+docker-compose.yml  PostgreSQL, Redis, API, worker
+```
 
-The repository includes deployment skeletons that are safe to publish:
+---
 
-- `backend/Dockerfile` builds the FastAPI backend runtime image.
-- `docker-compose.yml` runs the backend and PostgreSQL/pgvector services.
-- `.env.example` documents required environment variables without secrets.
-- `deploy/nginx/askmemind.conf.example` provides an example reverse proxy with upload and rate limits.
+## Author
 
-For a public VPS deployment:
-
-- Keep `.env` private and never commit real API keys, database passwords, or `SECRET_KEY`.
-- Point `DATABASE_URL` to the Docker Compose service host `postgres`.
-- Do not expose PostgreSQL port `5432` to the internet.
-- Put the backend behind Nginx or Caddy with HTTPS.
-- Bind the backend port to localhost when using a reverse proxy, for example `127.0.0.1:8000:8000`.
-- Set `BACKEND_CORS_ORIGINS` to the frontend domain, such as a Vercel URL or custom domain.
-- Keep uploaded files out of git and back up `storage/uploads` if the data matters.
-
-If PostgreSQL data already exists and you need to change `POSTGRES_PASSWORD`, update the database user first:
-
-~~~bash
-docker compose exec postgres psql -U askmemind -d askmemind
-~~~
-
-Then run:
-
-~~~sql
-ALTER USER askmemind WITH PASSWORD 'new-password';
-~~~
-
-Update both `POSTGRES_PASSWORD` and `DATABASE_URL` in `.env`, then recreate the backend:
-
-~~~bash
-docker compose up -d --force-recreate backend
-~~~
-
-Do not use `docker compose down -v` unless you intentionally want to delete Docker volumes, including PostgreSQL data.
-
-## Security Notes
-
-- Never commit `.env`, real API keys, database passwords, or JWT secrets.
-- Keep uploaded files and temporary files out of git.
-- Restrict upload types and sizes before exposing the service publicly.
-- Use HTTPS in production.
-- Use a strong random `SECRET_KEY` for JWT signing.
-- Rotate any credential that may have been committed or shared accidentally.
-
-## Current Limitations
-
-- PDF uploads return after validation and persistence; PDF processing runs in a Celery worker backed by Redis. The API uses Redis pub/sub to stream document status updates over SSE. API and worker containers must share access to uploaded files, and production deployments should tune Celery retries, queues, and worker concurrency for their workload. Startup cleanup marks documents left in processing as processing_failed.
-- Uploads use local disk rather than durable object storage.
-- The vector dimension is fixed at 1024; changing embedding models requires a migration and full re-embedding.
-- The deterministic query rewriter is transparent and cheap, but less flexible than a separately evaluated model-based rewriter.
-- Chat history is append-only, and answer streaming is not implemented.
-- Structured logs are emitted to stdout; metrics export and distributed tracing are not configured.
-
-## Next Steps
-
-- Add richer Celery retry/backoff policies, worker dashboards, and per-task progress metadata.
-- Add object storage and document deletion with file/chunk cleanup.
-- Evaluate a replacement embedding model and re-index existing chunks before changing the configured model.
-- Compare the heuristic reranker with a cross-encoder on the checked-in dataset.
-- Export OpenTelemetry traces and Prometheus metrics when deployment requirements justify them.
-- Add streaming responses and a polished frontend.
-
-## Development Notes
-
-- RAG answers must go through retrieval; do not answer directly from the LLM when document grounding is required.
-- `chunk_metadata` may be empty for PDF chunks because PDF citations are stored in normalized fields such as `page_number`, `start_char`, and `end_char`.
-- PDF chunks store embedding provider, model, and dimension metadata to support future re-embedding workflows.
-- Celery and Redis handle long-running document processing; keep the API and worker on shared upload storage unless object storage is added.
+Built by **Khoa** ([@11Khoa](https://github.com/11Khoa)).
