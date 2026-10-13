@@ -30,7 +30,7 @@ def test_login_user_success_returns_token_response() -> None:
 
     assert isinstance(result, TokenResponse)
     assert result.token_type == "bearer"
-    assert decode_access_token(result.access_token) == str(user_id)
+    assert decode_access_token(result.access_token).subject == str(user_id)
     user_repository.get_user_by_email.assert_called_once_with(email=email)
 
 
