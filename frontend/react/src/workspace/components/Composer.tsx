@@ -11,6 +11,7 @@ type ComposerProps = {
   selectedDocumentName?: string
   onQuestionChange: (value: string) => void
   onSend: () => void
+  onStop: () => void
 }
 
 export function Composer({
@@ -20,6 +21,7 @@ export function Composer({
   selectedDocumentName,
   onQuestionChange,
   onSend,
+  onStop,
 }: ComposerProps) {
   const { t } = useTranslation()
   const inputRef = useAutoResizeTextarea(question)
@@ -51,12 +53,18 @@ export function Composer({
           <span>{selectedDocumentName ||
             (documentsCount ? t('chat.selectedAllDocuments') : t('chat.noDocumentsYet'))}</span>
         </div>
-        <button className="send-button" title={t('chat.sendQuestion')}
-          disabled={!question.trim() || sending}>
-          {sending
-            ? <LoaderCircle className="spin" size={17} />
-            : <Send size={17} />}
-        </button>
+        {sending ? (
+          <button type='button' className='send-button' title={t('chat.stopGenerating')} onClick={onStop}>
+            <LoaderCircle size={15} />
+          </button>
+        ) : (
+          <button className="send-button" title={t('chat.sendQuestion')}
+            disabled={!question.trim()}>
+              <Send size={17} />
+          </button>
+        )
+
+        }
       </div>
     </form>
   )
