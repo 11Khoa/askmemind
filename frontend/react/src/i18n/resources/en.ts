@@ -73,6 +73,7 @@ export const en = {
     selectedAllDocuments: 'All documents',
     noDocumentsYet: 'No documents yet',
     sendQuestion: 'Send question',
+    stopGenerating: 'Stop generating',
     signOut: 'Sign out',
   },
   controls: {

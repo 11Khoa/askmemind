@@ -2,7 +2,7 @@ import { BookOpenText, LoaderCircle } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { api, ApiError } from '../lib/api'
+import { api, ApiError, isAbortError } from '../lib/api'
 import { MAX_FILE_SIZE_MB, MAX_FILE_SIZE_BYTES } from "../lib/constants";
 import type {
   Chat,
@@ -43,6 +43,7 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
   const [user, setUser] = useState<User | null>(null)
   const [documents, setDocuments] = useState<Document[]>([])
   const documentsRef = useRef<Document[]>([])
+  const abortRef = useRef<AbortController | null>(null)
   const [chats, setChats] = useState<Chat[]>([])
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
@@ -143,6 +144,12 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
     return () => { active = false }
   }, [handleError, selectedChatId, token])
 
+  useEffect(() => () => abortRef.current?.abort(), [])
+
+  function stopStreaming() {
+    abortRef.current?.abort()
+  }
+
   function selectChat(chatId: string) {
     setLoadingMessages(true)
     setSelectedChatId(chatId)
@@ -211,6 +218,9 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
     }
     setMessages((current) => [...current, optimistic, streamingAssistant])
 
+    const controller = new AbortController()
+    abortRef.current = controller
+
     try {
       await api.streamQuestion(
         token,
@@ -239,8 +249,13 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
             )))
           },
         },
+        controller.signal
       )
     } catch (caught) {
+      if(isAbortError(caught)){
+        setMessages((current) => current.filter((message) => !(message.id === streamingAssistantId && message.content === '')))
+        return
+      }
       setMessages((current) => current.filter((message) => (
         message.id !== optimisticUserId && message.id !== streamingAssistantId
       )))
@@ -248,6 +263,7 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
       handleError(caught)
     } finally {
       setSending(false)
+      if(abortRef.current === controller) abortRef.current = null
     }
   }
 
@@ -363,6 +379,7 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
             selectedDocumentName={selectedDocument?.original_filename}
             onQuestionChange={setQuestion}
             onSend={() => void sendQuestion()}
+            onStop={stopStreaming}
           />
         </div>
         <p className="composer-hint">{t('workspace.composerHint')}</p>
