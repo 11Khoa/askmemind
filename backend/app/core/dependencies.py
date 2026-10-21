@@ -18,6 +18,7 @@ from app.database import SessionLocal, get_db
 from app.repositories.chat_repository import ChatRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.user_repository import UserRepository
+from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.repositories.chunk_repository import ChunkRepository
 from app.services.auth_service import AuthService
 from app.services.chat_service import ChatService
@@ -65,7 +66,10 @@ def get_auth_service(
     db: Annotated[Session, Depends(get_db)],
 ) -> AuthService:
     user_repository = UserRepository(db=db)
-    return AuthService(user_repository=user_repository)
+    return AuthService(
+        user_repository=user_repository,
+        refresh_token_repository=RefreshTokenRepository(db=db),
+    )
 
 
 def get_current_user(
@@ -85,7 +89,7 @@ def get_current_user(
     user_repository = UserRepository(db=db)
     user = user_repository.get_user_by_id(user_id)
 
-    if user is None:
+    if user is None or not user.is_active:
         raise HTTPException(
             status_code=401,
             detail="Could not validate credentials",
