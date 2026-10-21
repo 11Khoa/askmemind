@@ -58,17 +58,18 @@ class AuthService:
         # Sign while holding the user lock; never reload a newer version after commit.
         access_token = create_access_token(str(user.id), user.token_version)
         refresh_token = create_opaque_token()
+        expires_at = datetime.now(timezone.utc) + timedelta(
+            days=settings.refresh_token_expire_days
+        )
         self.refresh_token_repository.create_refresh_token(
             user_id=user.id,
             token_hash=hash_token(refresh_token),
-            expires_at=datetime.now(timezone.utc)
-            + timedelta(
-                days=settings.refresh_token_expire_days,
-            ),
+            expires_at=expires_at,
         )
         return TokenResponse(
             access_token=access_token,
             refresh_token=refresh_token,
+            refresh_expires_at=expires_at,
         )
 
     def refresh(self, raw_token: str) -> TokenResponse:
@@ -97,10 +98,12 @@ class AuthService:
             raise ValueError("Invalid or expired refresh token")
         replacement = create_opaque_token()
         access_token = create_access_token(str(user.id), user.token_version)
+        expires_at = token.expires_at
         self.refresh_token_repository.rotate(token, hash_token(replacement), now)
         return TokenResponse(
             access_token=access_token,
             refresh_token=replacement,
+            refresh_expires_at=expires_at,
         )
 
     def logout(self, user_id: uuid.UUID, raw_token: str) -> None:

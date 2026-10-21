@@ -5,11 +5,17 @@ from app.core.dependencies import get_db
 from app.main import app
 from app.schemas.user import UserCreate, UserLogin
 
-
 _PASSWORD = "password1122"
 
 
-def test_register_then_login_with_different_email_case(db_session: Session) -> None:
+def test_register_then_login_with_different_email_case(
+    db_session: Session, monkeypatch
+) -> None:
+    from app.core.config import settings
+
+    monkeypatch.setattr(
+        settings, "auth_csrf_trusted_origins", "https://app.example.com"
+    )
     app.dependency_overrides[get_db] = lambda: db_session
 
     try:
@@ -25,6 +31,7 @@ def test_register_then_login_with_different_email_case(db_session: Session) -> N
         login_response = client.post(
             "/auth/login",
             json={"email": "user@x.com", "password": _PASSWORD},
+            headers={"Origin": "https://app.example.com", "X-CSRF-Protection": "1"},
         )
         assert login_response.status_code == 200
         assert login_response.json()["token_type"] == "bearer"

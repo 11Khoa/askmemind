@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 
 from app import models
-from app.core.config import settings
+from app.core.config import Settings, settings
 from app.core.logging import (
     configure_logging,
     finish_request_context,
@@ -57,9 +57,13 @@ app = FastAPI(lifespan=lifespan)
 
 
 @app.exception_handler(TokenStoreUnavailable)
-async def token_store_unavailable_handler(request: Request, error: TokenStoreUnavailable):
+async def token_store_unavailable_handler(
+    request: Request, error: TokenStoreUnavailable
+):
     log_event(logger, logging.ERROR, "auth.token_store.unavailable")
-    return JSONResponse(status_code=503, content={"detail": "Authentication temporarily unavailable"})
+    return JSONResponse(
+        status_code=503, content={"detail": "Authentication temporarily unavailable"}
+    )
 
 
 @app.middleware("http")
@@ -103,20 +107,24 @@ async def request_observability_middleware(request: Request, call_next):
         finish_request_context(context_tokens)
 
 
-cors_origins = [
-    origin.strip()
-    for origin in settings.backend_cors_origins.split(",")
-    if origin.strip()
-]
+def configure_cors(application: FastAPI, config: Settings) -> None:
+    if config.cors_origins:
+        application.add_middleware(
+            CORSMiddleware,
+            allow_origins=config.cors_origins,
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            allow_headers=[
+                "Authorization",
+                "Content-Type",
+                "X-CSRF-Protection",
+                "X-Request-ID",
+            ],
+            expose_headers=["X-Request-ID"],
+        )
 
-if cors_origins:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+
+configure_cors(app, settings)
 
 app.include_router(health.router)
 app.include_router(auth.router)

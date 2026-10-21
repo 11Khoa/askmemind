@@ -1,59 +1,183 @@
-# Authentication and Token Lifecycle
+# Authentication and Persistent Browser Sessions
 
-## Implemented Lessons
+## Browser Contract
 
-1. Access tokens contain `sub` (user ID), `jti` (unique token ID), `iat` (issued-at), `exp` (expiry), and `ver` (account token version).
-2. Decoding verifies the signature, expiry, issue time, required identifiers and integer timestamps. `AccessTokenPayload` exposes the validated data. Tokens issued before account versioning default to version zero.
-3. `refresh_tokens` stores SHA-256 digests of 256-bit opaque tokens, user IDs, expiration, revocation and replacement IDs. Raw tokens are returned once and never stored in the DB.
-4. Login locks the user row, checks the current password and active state, saves a refresh-token digest and returns both tokens.
-5. Refresh locks the user then token, replaces the token and revokes its predecessor in one transaction. Absolute expiry is preserved. Reusing a revoked token revokes **all refresh sessions** for the user, including other devices. This conservative policy does not require a family column; clients must serialize refresh requests and persist the new token before the next refresh. A lost refresh response requires signing in again.
-6. Logout requires a valid bearer access token and a refresh token belonging to the same user. It revokes the submitted refresh token and blacklists the submitted access token. It does not log out other devices. An already-revoked access token receives `401` on subsequent requests.
-7. Redis keys `auth:revoked:<jti>` live until access-token expiration. Redis errors fail closed with `503`; they never silently authorize a request. The user record is also checked on each protected request, so disabled users cannot authenticate.
-8. Password-reset tokens are opaque, hashed in the DB, expiring and single use. A successful reset updates the password hash, increments the account token version, consumes all reset links and revokes all refresh tokens in one transaction. Other access tokens fail on their next request, including tokens created in the same second as the reset. Existing open streams are not interrupted mid-request.
+Browser authentication uses a short-lived access token in JSON and an opaque refresh token in a persistent **HttpOnly cookie**. JavaScript never receives the refresh token in a response body. Access tokens still use `Authorization: Bearer <access_token>`; cookies alone do not authenticate `/auth/me`, document or chat endpoints.
 
-User-row locks serialize login, rotation, logout, reset-link creation and password reset. Concurrent uses of the same refresh or reset token cannot both succeed. Repositories roll back failed multi-write transactions.
+Use `credentials: 'include'` for login, refresh and logout. Those three POST endpoints also require:
 
-## API Payloads
+- An `Origin` exactly matching `AUTH_CSRF_TRUSTED_ORIGINS`. Browsers set this header automatically; JavaScript must not try to override it.
+- The custom header `X-CSRF-Protection: 1`.
 
-`POST /auth/login`:
+There is no Referer fallback, wildcard/suffix matching or missing/null Origin exemption. The custom header forces preflight for cross-origin requests and prevents simple HTML forms from invoking these endpoints. It is a fixed AJAX marker, not a session secret; exact Origin checking and explicit credentialed CORS are part of this protection. SameSite is defense in depth. CSRF failures return `403` before session mutation and do not set/delete cookies.
 
-```json
-{"email": "user@example.com", "password": "your-password"}
-```
+All `/auth/` responses use `Cache-Control: no-store` and `Pragma: no-cache`. Never log Authorization, Cookie, Set-Cookie, credential-bearing request bodies or token values in API/proxy/analytics/error-reporting layers.
 
-Login and `POST /auth/refresh` return:
+## Browser Endpoints
 
-```json
-{"access_token": "<jwt>", "refresh_token": "<opaque-token>", "token_type": "bearer"}
-```
+| Endpoint | Request | Success |
+|---|---|---|
+| `POST /auth/register` | JSON email/password | `201` UserRead; no cookie/session |
+| `POST /auth/login` | JSON email/password, Origin and CSRF header | `200` access-only JSON plus Set-Cookie |
+| `POST /auth/refresh` | Cookie, Origin and CSRF header; no JSON or bearer needed | `200` access-only JSON plus rotated Set-Cookie |
+| `POST /auth/logout` | Cookie, current bearer, Origin and CSRF header; no JSON needed | `204`, refresh revoked, access blacklisted, cookie deleted |
+| `GET /auth/me` | Bearer access token | `200` UserRead |
 
-Send `Authorization: Bearer <access_token>` on protected requests. All `/auth/` responses have `Cache-Control: no-store`.
-
-`POST /auth/refresh` accepts `{"refresh_token": "<current-refresh-token>"}` and returns a new pair. Invalid, expired or reused tokens return `401`. Existing access tokens keep their remaining lifetime after rotation or refresh replay; refresh replay revokes refresh sessions only.
-
-`POST /auth/logout` accepts the same JSON body plus the bearer header and returns `204`. The client must discard both tokens. If Redis fails after refresh revocation, logout returns `503`; the refresh token is already revoked and the access blacklist write can be retried while that access token is valid.
-
-`POST /auth/forgot-password` accepts `{"email": "user@example.com"}` and returns `202` with a generic message. Both known and unknown emails are queued; account lookup happens in the worker. An account can request up to three messages per hour; requests over that email limit receive the same generic `202` without queuing more mail. Each source IP is limited to ten requests per hour (`429`). Missing email configuration or a failed broker publish returns `503` for all emails.
-
-`POST /auth/reset-password` accepts:
+Login input:
 
 ```json
-{"token": "<token-from-email>", "new_password": "your-new-password"}
+{"email":"user@example.com","password":"your-password"}
 ```
 
-Success returns `204`, invalid/expired/consumed tokens return `400`, and invalid password length returns `422`. Passwords must be 8-128 characters. Reset attempts are limited to ten per IP per minute (`429`). Reset does not automatically log the user in.
+Login/refresh JSON response (no refresh token):
 
-## Email and Deployment
+```json
+{"access_token":"<jwt>","token_type":"bearer"}
+```
 
-Run `alembic upgrade head` from `backend` before starting the updated API and worker. Migration `8a7d32e901bc` adds `password_reset_tokens` and `users.token_version`.
+Production Set-Cookie defaults resemble:
 
-Configure these variables in **both API and Celery worker** environments:
+```http
+Set-Cookie: __Host-askmemind_refresh=<opaque>; Path=/; HttpOnly; Secure; SameSite=lax; Max-Age=<remaining-seconds>; Expires=<absolute-GMT-expiry>
+```
+
+No Domain attribute is set: the cookie belongs only to the API host. The `__Host-` prefix requires Secure and Path=/ and protects against sibling-domain cookie injection. The root path is intentional for this prefix; the token is nevertheless read only by browser auth endpoints.
+
+On reload or reopening the browser, POST `/auth/refresh` with credentials and the CSRF header, keep the returned access token in RAM, then call `/auth/me`. Max-Age and Expires allow the cookie to survive browser closure until the original session expires; privacy settings/private browsing/manually clearing cookies can still remove it. Browser JavaScript cannot read HttpOnly cookies or the Set-Cookie response header. Neither token belongs in localStorage/sessionStorage.
+
+Refresh reads **only the cookie**; JSON refresh tokens are never a fallback. Replacement rows retain the original `expires_at`, and cookie lifetime decreases rather than restarting the session duration. Token issuance snapshots the account version while holding the user lock, before commit releases it.
+
+Serialize refresh requests, including across tabs. Concurrent uses of one rotated token are replay and revoke all refresh sessions for that user. A per-tab promise is insufficient for simultaneous tabs; the frontend should coordinate using Web Locks/BroadcastChannel or another cross-tab mechanism. Do not automatically retry refresh after an ambiguous network failure: the server may have consumed the token. Strict replay detection is retained without a grace window.
+
+### Errors and Logout
+
+- Login: incorrect credentials/inactive user `401`; invalid body `422`.
+- Refresh: missing/malformed/unknown/expired/revoked cookie `401`, deleting the cookie with matching attributes.
+- Logout: invalid/missing refresh cookie or ownership mismatch `401` and cookie deletion, without revoking another user's session. A currently valid bearer token is required; invalid access returns `401` through the dependency. If access expired, refresh once before logout.
+- All three browser POST endpoints: untrusted/missing/null Origin or missing/incorrect CSRF header `403`, no session mutation or cookie changes.
+- Redis errors: `503`. On logout, if blacklist writing fails after refresh revocation, retain the cookie so logout can be retried with the still-valid access token. Do not treat `503` as completed logout.
+- Registration: duplicate email `400`; registration disabled `403`; invalid fields `422`.
+
+Successful logout revokes the submitted refresh token, blacklists the presented access jti, deletes the cookie with the same name/path/HttpOnly/Secure/SameSite attributes and returns no body. The client clears its in-memory access token. In-flight requests/open SSE connections are not interrupted; revocation applies on subsequent authenticated requests.
+
+### Frontend Integration Examples
+
+These are contract examples, not changes to React:
+
+```javascript
+const API = 'https://askmemind-backend.fullfact.xyz';
+const loginResponse = await fetch(`${API}/auth/login`, {
+  method: 'POST',
+  credentials: 'include',
+  headers: { 'Content-Type': 'application/json', 'X-CSRF-Protection': '1' },
+  body: JSON.stringify({ email, password }),
+});
+// Check response.ok before consuming or using a token.
+const refreshResponse = await fetch(`${API}/auth/refresh`, {
+  method: 'POST',
+  credentials: 'include',
+  headers: { 'X-CSRF-Protection': '1' },
+});
+// On 200 keep access_token in memory; on 401 show sign-in.
+await fetch(`${API}/auth/logout`, {
+  method: 'POST',
+  credentials: 'include',
+  headers: { 'X-CSRF-Protection': '1', Authorization: `Bearer ${accessToken}` },
+});
+```
+
+Frontend integration must check response status, handle errors and serialize refresh. Protected requests still send the bearer header. Native EventSource cannot attach it; retain fetch-based SSE with the current access token. Existing React/CLI clients must migrate to this new contract before deployment; this backend task does not change them.
+
+## Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ENVIRONMENT` | `production` | `production` or `local`; production refuses insecure refresh cookies |
+| `AUTH_REFRESH_COOKIE_NAME` | `__Host-askmemind_refresh` | Name; change for HTTP localhost |
+| `AUTH_REFRESH_COOKIE_PATH` | `/` | Used for both setting/deletion; `__Host-` requires `/` |
+| `AUTH_REFRESH_COOKIE_SECURE` | `True` | HTTPS-only; can be False only in local mode |
+| `AUTH_REFRESH_COOKIE_SAMESITE` | `lax` | lax/strict/none; none requires Secure |
+| `AUTH_CSRF_TRUSTED_ORIGINS` | empty | Comma-separated exact frontend origins; empty blocks browser auth POSTs |
+| `BACKEND_CORS_ORIGINS` | empty | Explicit origins for credentialed CORS; empty disables cross-origin access |
+| `AUTH_JSON_TOKENS_ENABLED` | `False` | Opt in to isolated CLI/native body-token endpoints |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | Access lifetime |
+| `REFRESH_TOKEN_EXPIRE_DAYS` | `30` | Absolute lifetime assigned only on login |
+
+Origin lists reject `*`, wildcard subdomains, `null`, credentials, paths, queries, fragments and trailing slashes. Use exact frontend scheme/hostname/port. CORS and CSRF lists are independent: CORS alone never authorizes cookie operations. CORS allows credentials and explicit methods/headers, including the CSRF header; no wildcard origins, methods or headers are configured.
+
+Swagger `/docs` runs at the API origin. To test browser login/refresh/logout there, explicitly allow that API origin in the CSRF list and send the CSRF header. It is not implicitly trusted because it matches Host. CLI smoke requests must deliberately supply the configured browser Origin/CSRF header and retain the cookie, or use the opt-in native endpoints.
+
+### HTTP Localhost
 
 ```ini
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-REFRESH_TOKEN_EXPIRE_DAYS=30
+ENVIRONMENT=local
+AUTH_REFRESH_COOKIE_NAME=askmemind_refresh
+AUTH_REFRESH_COOKIE_PATH=/
+AUTH_REFRESH_COOKIE_SECURE=False
+AUTH_REFRESH_COOKIE_SAMESITE=lax
+AUTH_CSRF_TRUSTED_ORIGINS=http://localhost:5173
+BACKEND_CORS_ORIGINS=http://localhost:5173
+AUTH_JSON_TOKENS_ENABLED=False
+PASSWORD_RESET_URL=http://localhost:5173/reset-password
+```
+
+Use localhost for both frontend and API, or 127.0.0.1 for both; they are different sites. If using Vite's `/api` proxy, the browser Origin remains the frontend origin and the proxy must forward Cookie/Set-Cookie. Cookies are not port-isolated, so avoid unrelated localhost apps sharing the same cookie name.
+
+### Production Custom Domains
+
+```ini
+ENVIRONMENT=production
+AUTH_REFRESH_COOKIE_NAME=__Host-askmemind_refresh
+AUTH_REFRESH_COOKIE_PATH=/
+AUTH_REFRESH_COOKIE_SECURE=True
+AUTH_REFRESH_COOKIE_SAMESITE=lax
+AUTH_CSRF_TRUSTED_ORIGINS=https://askmemind.fullfact.xyz
+BACKEND_CORS_ORIGINS=https://askmemind.fullfact.xyz
+AUTH_JSON_TOKENS_ENABLED=False
+PASSWORD_RESET_URL=https://askmemind.fullfact.xyz/reset-password
+```
+
+Load configuration into both API and Celery workers. Cookie name/host/path changes do not delete old cookies: deliberately expire any legacy cookie using its original attributes when migrating such settings. No DB migration is needed for this transport change; previous auth migrations must already be applied.
+
+## Vercel and API Domains
+
+Recommended: keep Vercel hosting but attach `askmemind.fullfact.xyz`; expose the API at `askmemind-backend.fullfact.xyz`. HTTPS and the shared registrable site `fullfact.xyz` let Lax cookies work without depending on third-party cookies. They are still different origins, so explicit CORS and credentials:include remain necessary. Keep the cookie host-only, without Domain=.fullfact.xyz.
+
+Alternatively, reverse-proxy `/api/*` from the frontend's own origin to the API. Preserve Origin, Cookie/Set-Cookie, Authorization and the CSRF header; do not weaken Secure/HttpOnly/SameSite or alter expiry. The root cookie path works when stripping `/api`; a narrower local cookie path must match the browser-visible URL. Preserve SSE streaming. Origin validation never trusts Host/X-Forwarded-Host to build an allowlist.
+
+Avoid `project.vercel.app` calling an unrelated API site directly. That requires cross-site cookies: SameSite=None plus Secure is configurable, but browser third-party cookie blocking can still break persistence. Use a shared-site custom domain or same-origin proxy instead. Preview deployments need explicitly trusted origins and compatible site/proxy setup; never wildcard *.vercel.app.
+
+## Optional CLI / Native Flow
+
+Enable `AUTH_JSON_TOKENS_ENABLED=True` only when another client needs body tokens:
+
+| Endpoint | Input | Success |
+|---|---|---|
+| `POST /auth/token/login` | JSON email/password | `200` access_token, refresh_token, token_type |
+| `POST /auth/token/refresh` | `{"refresh_token":"<current-token>"}` | `200` rotated pair |
+| `POST /auth/token/logout` | Same refresh JSON plus bearer header | `204` |
+
+They never read/set cookies. Any Origin, Sec-Fetch-Site or Cookie header returns `403`, including trusted browser origins. This cannot serve as a React CSRF escape route. Disabled endpoints return `404` for valid requests; invalid tokens return `401` and invalid fields `422`. Services preserve identical rotation, absolute expiry, replay and revocation behavior.
+
+Existing CLI/Streamlit integrations using /auth/login must explicitly migrate and opt in. There is no fallback based on missing Origin, a body token, query parameter or User-Agent. Browser refresh tokens previously held in JavaScript should be discarded; sign in once through cookie login to establish the new session transport.
+
+## Preserved Revocation and Password Recovery
+
+JWTs retain sub/jti/iat/exp/ver with signature/claim validation. Passwords use Argon2. Opaque refresh tokens contain 256 bits of randomness; PostgreSQL stores SHA-256 digests only. User locks serialize login, rotation, logout and password reset. Rotation inserts/links the successor and revokes its predecessor atomically. Reusing a non-expired revoked token revokes all refresh sessions for that user. Expired replay cannot revoke newer logins. Refresh replay does not revoke already-issued access tokens; their existing lifetime is unchanged.
+
+Logout blacklists the access jti until expiry. Redis errors fail closed. Keep Redis private/persistent (Compose uses AOF), without eviction or flushing auth keys; losing a blacklist key can permit a logged-out JWT until expiry. Password reset increments the DB account version, so that revocation survives Redis loss.
+
+Successful reset atomically updates the password, increments token_version, consumes all reset links and revokes all refresh tokens. Old access tokens fail on the next request, old cookies fail and are deleted on refresh. Reset never creates a new session.
+
+`POST /auth/forgot-password` accepts JSON email and returns generic `202` for known/unknown accounts. Account lookup/token generation occur in the worker; only email/request ID travel through the broker. Missing email configuration or enqueue failure returns generic `503`; logs contain flags/error types, not secrets. SMTP delivery failures occur later in the worker. Limits: three messages/email/hour (extra attempts return generic 202 without queuing), ten attempts/IP/hour (429).
+
+`POST /auth/reset-password` accepts `{"token":"<emailed-token>","new_password":"new-password"}`. It returns `204`, `400` for invalid/expired/used tokens, `422` for invalid password length (8-128), `429` for more than ten attempts/IP/minute and `503` on Redis failure. Recovery endpoints never authenticate through refresh cookies; reset requires the separate email token.
+
+SMTP configuration in both API/worker environments:
+
+```ini
 PASSWORD_RESET_EXPIRE_MINUTES=15
-PASSWORD_RESET_URL=https://your-frontend.example/reset-password
+PASSWORD_RESET_URL=https://askmemind.fullfact.xyz/reset-password
 SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_USERNAME=your-smtp-user
@@ -62,20 +186,10 @@ SMTP_FROM_EMAIL=auth@example.com
 SMTP_USE_SSL=False
 ```
 
-Port 587 uses mandatory STARTTLS. For implicit TLS use `SMTP_USE_SSL=True` and the provider's TLS port, usually 465. Certificate verification is enabled. The configured reset URL must use HTTPS except for local development on `localhost` or `127.0.0.1`; it is never taken from an incoming Host header.
+Port 587 uses mandatory STARTTLS; implicit TLS uses SMTP_USE_SSL=True with the provider's port (usually 465). Certificates are verified. Reset URLs require HTTPS except localhost/127.0.0.1; links use #token=..., consumed/removed by the frontend before analytics. The worker owns/closes its DB session and retries delivery failures three times with generic errors. New reset issuance invalidates older links. SMTP and DB cannot commit together: after partial delivery/retry, use the newest link. Keep revoked refresh rows until their original expiry when scheduling retention cleanup.
 
-The worker handles `auth.send_password_reset` using its own DB session, closes it in `finally`, and retries delivery failures up to three times. Each new issuance invalidates previous reset links. A retry after partial SMTP delivery may therefore invalidate an earlier email; use the newest link. Worker logs record error types and request IDs, not raw tokens or SMTP message content. Only the email and request ID travel through the Celery broker; the reset token is generated in the worker.
+## Verification and References
 
-Email links look like `https://your-frontend.example/reset-password#token=...`. The frontend must read `window.location.hash`, remove it with `history.replaceState`, collect a new password and POST the token in the JSON body. **This backend change does not add a React reset page or automatic refresh handling.** Configure the URL to a page that implements that flow before enabling email recovery.
+On isolated PostgreSQL/pgvector, run migrations then `python -m pytest tests -q` from backend. AUTH_TEST_REDIS_URL enables real Redis checks. Tests cover cookie flags/persistence, absolute expiry, rotation/replay, deletion/ownership, missing/expired/invalid cookies, reset revocation, CSRF, native separation, explicit credentialed CORS, concurrency and rollback. SMTP is mocked; tests do not email production users.
 
-Protect tokens with HTTPS, avoid logs/analytics containing token values, and do not persist bearer tokens in browser localStorage. The current API returns refresh tokens in JSON for explicit clients; a browser deployment can add Secure HttpOnly refresh cookies together with CSRF protection as a separate client/API change. Apply login/register rate limits at the gateway as well; the built-in limits here cover password recovery. Configure trusted proxy forwarding so rate limits see the actual client IP; never trust arbitrary X-Forwarded-For headers from the public internet.
-
-Redis is now required for authenticated traffic and recovery rate limits. Keep Redis private, use persistence (Compose enables AOF), and avoid eviction or flushing auth keys: losing a blacklist key permits a logged-out access token until its JWT expires. Keep broker/result cleanup away from auth keys. Short access lifetimes bound this risk. Account token versions make password-reset revocation durable in PostgreSQL even if Redis restarts.
-
-Expired/consumed DB token rows are retained for replay detection and audit. Schedule a retention cleanup that preserves revoked refresh rows until their original expiry. SMTP delivery and the DB cannot commit atomically; monitor email-failure events, and users can request another link after a delivery failure.
-
-## Verification
-
-Run migrations on an isolated PostgreSQL/pgvector test DB, then `python -m pytest tests -q` from `backend`. Set `AUTH_TEST_REDIS_URL` to an isolated Redis to include real blacklist and Lua rate-limit checks; CI configures PostgreSQL and Redis. Tests also cover token validation, rotation replay, concurrent rotation/reset, logout ownership, Redis outages, one-use password reset, session invalidation, generic recovery responses and mocked SMTP/worker failures. SMTP credentials and real inbox delivery are deployment checks.
-
-Design references: [RFC 9700 refresh-token rotation](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14) and [OWASP password recovery](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html).
+References: [OWASP CSRF prevention](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html), [MDN Set-Cookie](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie), [RFC 9700 rotation](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14).

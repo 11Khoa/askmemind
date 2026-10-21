@@ -13,7 +13,7 @@ from app.models.user import User
 def login(client):
     credentials = {"email": "lifecycle@example.com", "password": "test-password-123"}
     assert client.post("/auth/register", json=credentials).status_code == 201
-    response = client.post("/auth/login", json=credentials)
+    response = client.post("/auth/token/login", json=credentials)
     assert response.status_code == 200
     return response.json()
 
@@ -28,7 +28,7 @@ def test_rotation_and_replay_revoke_replacement(auth_client, db_session):
         .one()
     )
     response = auth_client.post(
-        "/auth/refresh", json={"refresh_token": first["refresh_token"]}
+        "/auth/token/refresh", json={"refresh_token": first["refresh_token"]}
     )
     assert response.status_code == 200
     second = response.json()
@@ -41,13 +41,13 @@ def test_rotation_and_replay_revoke_replacement(auth_client, db_session):
     assert replacement.expires_at == original.expires_at
     assert (
         auth_client.post(
-            "/auth/refresh", json={"refresh_token": first["refresh_token"]}
+            "/auth/token/refresh", json={"refresh_token": first["refresh_token"]}
         ).status_code
         == 401
     )
     assert (
         auth_client.post(
-            "/auth/refresh", json={"refresh_token": second["refresh_token"]}
+            "/auth/token/refresh", json={"refresh_token": second["refresh_token"]}
         ).status_code
         == 401
     )
@@ -64,7 +64,7 @@ def test_refresh_rejects_expired_and_unknown_tokens(auth_client, db_session):
     db_session.commit()
     for raw in [tokens["refresh_token"], "x" * 43]:
         assert (
-            auth_client.post("/auth/refresh", json={"refresh_token": raw}).status_code
+            auth_client.post("/auth/token/refresh", json={"refresh_token": raw}).status_code
             == 401
         )
 
@@ -80,18 +80,18 @@ def test_expired_replay_does_not_revoke_new_login(auth_client, db_session):
     token.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
     db_session.commit()
     second = auth_client.post(
-        "/auth/login",
+        "/auth/token/login",
         json={"email": "lifecycle@example.com", "password": "test-password-123"},
     ).json()
     assert (
         auth_client.post(
-            "/auth/refresh", json={"refresh_token": first["refresh_token"]}
+            "/auth/token/refresh", json={"refresh_token": first["refresh_token"]}
         ).status_code
         == 401
     )
     assert (
         auth_client.post(
-            "/auth/refresh", json={"refresh_token": second["refresh_token"]}
+            "/auth/token/refresh", json={"refresh_token": second["refresh_token"]}
         ).status_code
         == 200
     )
@@ -104,13 +104,13 @@ def test_disabled_user_cannot_login_refresh_or_authenticate(auth_client, db_sess
     db_session.commit()
     assert (
         auth_client.post(
-            "/auth/login", json={"email": user.email, "password": "test-password-123"}
+            "/auth/token/login", json={"email": user.email, "password": "test-password-123"}
         ).status_code
         == 401
     )
     assert (
         auth_client.post(
-            "/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
+            "/auth/token/refresh", json={"refresh_token": tokens["refresh_token"]}
         ).status_code
         == 401
     )
@@ -127,26 +127,26 @@ def test_logout_revokes_refresh_token(auth_client):
     headers = {"Authorization": f"Bearer {tokens['access_token']}"}
     body = {"refresh_token": tokens["refresh_token"]}
     assert (
-        auth_client.post("/auth/logout", headers=headers, json=body).status_code == 204
+        auth_client.post("/auth/token/logout", headers=headers, json=body).status_code == 204
     )
     assert auth_client.get("/auth/me", headers=headers).status_code == 401
-    assert auth_client.post("/auth/refresh", json=body).status_code == 401
+    assert auth_client.post("/auth/token/refresh", json=body).status_code == 401
 
 
 def test_logout_cannot_revoke_another_users_token(auth_client):
     first = login(auth_client)
     other = {"email": "other@example.com", "password": "test-password-123"}
     assert auth_client.post("/auth/register", json=other).status_code == 201
-    second = auth_client.post("/auth/login", json=other).json()
+    second = auth_client.post("/auth/token/login", json=other).json()
     response = auth_client.post(
-        "/auth/logout",
+        "/auth/token/logout",
         headers={"Authorization": f"Bearer {first['access_token']}"},
         json={"refresh_token": second["refresh_token"]},
     )
     assert response.status_code == 401
     assert (
         auth_client.post(
-            "/auth/refresh", json={"refresh_token": second["refresh_token"]}
+            "/auth/token/refresh", json={"refresh_token": second["refresh_token"]}
         ).status_code
         == 200
     )

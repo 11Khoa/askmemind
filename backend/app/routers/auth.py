@@ -1,8 +1,17 @@
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 
 from app.core.config import settings
+from app.core.browser_auth import (
+    clear_refresh_cookie,
+    read_refresh_cookie,
+    require_browser_csrf,
+    require_json_token_client,
+    set_refresh_cookie,
+)
 from app.core.dependencies import (
     get_auth_service,
     get_current_user,
@@ -10,7 +19,7 @@ from app.core.dependencies import (
     get_token_store,
     get_password_reset_service,
 )
-from app.core.logging import get_request_id
+from app.core.logging import get_request_id, log_event
 from app.core.security import AccessTokenPayload, hash_token
 from app.services.token_store import TokenStore
 from app.services.password_reset_service import PasswordResetService
@@ -21,11 +30,14 @@ from app.schemas.user import (
     UserRead,
     UserLogin,
     TokenResponse,
+    AccessTokenResponse,
     RefreshTokenRequest,
 )
 from app.schemas.user import ForgotPasswordRequest, ResetPasswordRequest
 from app.services.auth_service import AuthService
 from app.models.user import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/auth",
@@ -56,13 +68,18 @@ def register_user(
         ) from error
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post(
+    "/login",
+    response_model=AccessTokenResponse,
+    dependencies=[Depends(require_browser_csrf)],
+)
 def login_user(
     payload: UserLogin,
+    response: Response,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ):
     try:
-        return auth_service.login_user(
+        tokens = auth_service.login_user(
             email=payload.email,
             password=payload.password,
         )
@@ -71,6 +88,8 @@ def login_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(error),
         ) from error
+    set_refresh_cookie(response, tokens)
+    return AccessTokenResponse(access_token=tokens.access_token)
 
 
 @router.get("/me", response_model=UserRead)
@@ -80,8 +99,73 @@ def get_me(
     return current_user
 
 
-@router.post("/refresh", response_model=TokenResponse)
+def invalid_refresh_cookie_response(detail: str) -> JSONResponse:
+    response = JSONResponse(status_code=401, content={"detail": detail})
+    clear_refresh_cookie(response)
+    return response
+
+
+@router.post(
+    "/refresh",
+    response_model=AccessTokenResponse,
+    dependencies=[Depends(require_browser_csrf)],
+)
 def refresh_tokens(
+    request: Request,
+    response: Response,
+    auth_service: Annotated[AuthService, Depends(get_auth_service)],
+):
+    try:
+        tokens = auth_service.refresh(read_refresh_cookie(request))
+    except ValueError as error:
+        return invalid_refresh_cookie_response(str(error))
+    set_refresh_cookie(response, tokens)
+    return AccessTokenResponse(access_token=tokens.access_token)
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_browser_csrf)],
+)
+def logout(
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_user)],
+    auth_service: Annotated[AuthService, Depends(get_auth_service)],
+    access_payload: Annotated[AccessTokenPayload, Depends(get_current_access_payload)],
+    token_store: Annotated[TokenStore, Depends(get_token_store)],
+):
+    try:
+        auth_service.logout(current_user.id, read_refresh_cookie(request))
+    except ValueError as error:
+        return invalid_refresh_cookie_response(str(error))
+    token_store.revoke_access(access_payload)
+    response = Response(status_code=204)
+    clear_refresh_cookie(response)
+    return response
+
+
+@router.post(
+    "/token/login",
+    response_model=TokenResponse,
+    dependencies=[Depends(require_json_token_client)],
+)
+def login_json_client(
+    payload: UserLogin,
+    auth_service: Annotated[AuthService, Depends(get_auth_service)],
+):
+    try:
+        return auth_service.login_user(payload.email, payload.password)
+    except ValueError as error:
+        raise HTTPException(status_code=401, detail=str(error)) from error
+
+
+@router.post(
+    "/token/refresh",
+    response_model=TokenResponse,
+    dependencies=[Depends(require_json_token_client)],
+)
+def refresh_json_client(
     payload: RefreshTokenRequest,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ):
@@ -91,8 +175,12 @@ def refresh_tokens(
         raise HTTPException(status_code=401, detail=str(error)) from error
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(
+@router.post(
+    "/token/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_json_token_client)],
+)
+def logout_json_client(
     payload: RefreshTokenRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
@@ -114,6 +202,20 @@ def forgot_password(
     token_store: Annotated[TokenStore, Depends(get_token_store)],
 ):
     if not ResetEmailService(settings).is_configured():
+        log_event(
+            logger,
+            logging.ERROR,
+            "auth.password_reset.unconfigured",
+            request_id=get_request_id(),
+            smtp_host_configured=bool(settings.smtp_host),
+            smtp_sender_configured=bool(settings.smtp_from_email),
+            reset_url_configured=settings.password_reset_url is not None,
+            reset_url_scheme=(
+                settings.password_reset_url.scheme
+                if settings.password_reset_url is not None
+                else None
+            ),
+        )
         raise HTTPException(
             status_code=503, detail="Password reset temporarily unavailable"
         )
@@ -133,7 +235,14 @@ def forgot_password(
             kwargs={"email": payload.email, "request_id": get_request_id()},
             kwargsrepr="<redacted>",
         )
-    except Exception:
+    except Exception as error:
+        log_event(
+            logger,
+            logging.ERROR,
+            "auth.password_reset.enqueue_failed",
+            request_id=get_request_id(),
+            error_type=type(error).__name__,
+        )
         raise HTTPException(
             status_code=503, detail="Password reset temporarily unavailable"
         ) from None

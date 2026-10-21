@@ -34,7 +34,7 @@ def test_reset_changes_password_and_revokes_all_sessions(
     auth_client, auth_tokens, reset_service, db_session
 ):
     second_device = auth_client.post(
-        "/auth/login",
+        "/auth/token/login",
         json={"email": "reset@example.com", "password": "old-password-123"},
     ).json()
     raw = issue(reset_service)
@@ -52,13 +52,13 @@ def test_reset_changes_password_and_revokes_all_sessions(
     assert auth_client.get("/auth/me", headers=headers).status_code == 401
     assert (
         auth_client.post(
-            "/auth/refresh", json={"refresh_token": auth_tokens["refresh_token"]}
+            "/auth/token/refresh", json={"refresh_token": auth_tokens["refresh_token"]}
         ).status_code
         == 401
     )
     assert (
         auth_client.post(
-            "/auth/refresh", json={"refresh_token": second_device["refresh_token"]}
+            "/auth/token/refresh", json={"refresh_token": second_device["refresh_token"]}
         ).status_code
         == 401
     )
@@ -73,7 +73,7 @@ def test_reset_changes_password_and_revokes_all_sessions(
     assert stored.consumed_at is not None
     for password, expected in [("old-password-123", 401), ("new-password-123", 200)]:
         result = auth_client.post(
-            "/auth/login", json={"email": "reset@example.com", "password": password}
+            "/auth/token/login", json={"email": "reset@example.com", "password": password}
         )
         assert result.status_code == expected
         if expected == 200:
@@ -157,18 +157,29 @@ def test_forgot_password_queues_same_response_for_existing_and_unknown(
     assert "token" not in str(responses[0].json())
 
 
-def test_forgot_password_handles_queue_failure(auth_client, monkeypatch):
+def test_forgot_password_handles_queue_failure(auth_client, monkeypatch, caplog):
     monkeypatch.setattr(ResetEmailService, "is_configured", lambda self: True)
     monkeypatch.setattr(
         send_password_reset,
         "apply_async",
-        Mock(side_effect=RuntimeError("broker offline")),
+        Mock(side_effect=RuntimeError("broker offline: private-broker-password")),
     )
     response = auth_client.post(
-        "/auth/forgot-password", json={"email": "missing@example.com"}
+        "/auth/forgot-password",
+        json={"email": "missing@example.com"},
+        headers={"X-Request-ID": "reset-queue-diagnostic"},
     )
     assert response.status_code == 503
     assert "broker offline" not in response.text
+    record = next(
+        record
+        for record in caplog.records
+        if record.getMessage() == "auth.password_reset.enqueue_failed"
+    )
+    assert record.event_data["request_id"] == "reset-queue-diagnostic"
+    assert record.event_data["error_type"] == "RuntimeError"
+    assert "private-broker-password" not in caplog.text
+    assert record.exc_info is None
 
 
 def test_reset_rate_limit_returns_429(auth_client):
@@ -200,7 +211,10 @@ def test_email_limit_does_not_reveal_account_existence(auth_client, monkeypatch)
     queue.assert_not_called()
 
 
-def test_unconfigured_recovery_returns_503(auth_client, monkeypatch):
+def test_unconfigured_recovery_returns_503(auth_client, monkeypatch, caplog):
+    monkeypatch.setattr(settings, "smtp_host", "")
+    monkeypatch.setattr(settings, "smtp_from_email", "")
+    monkeypatch.setattr(settings, "password_reset_url", None)
     monkeypatch.setattr(ResetEmailService, "is_configured", lambda self: False)
     assert (
         auth_client.post(
@@ -208,6 +222,14 @@ def test_unconfigured_recovery_returns_503(auth_client, monkeypatch):
         ).status_code
         == 503
     )
+    record = next(
+        record
+        for record in caplog.records
+        if record.getMessage() == "auth.password_reset.unconfigured"
+    )
+    assert record.event_data["smtp_host_configured"] is False
+    assert record.event_data["smtp_sender_configured"] is False
+    assert record.event_data["reset_url_configured"] is False
 
 
 def test_failed_password_reset_rolls_back_all_changes(

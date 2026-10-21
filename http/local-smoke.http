@@ -6,11 +6,12 @@
 # 5. Ask RAG question
 # 6. Verify chat messages include user + assistant messages
 
-@baseUrl = http://127.0.0.1:8000
+@baseUrl = http://localhost:8000
 @chatId = replace-with-chat-id
 @accessToken = replace-with-access-token
 @documentId = replace-with-document-id
 @question = What is this document about?
+@browserOrigin = http://localhost:5173
 
 ###
 POST {{baseUrl}}/auth/register
@@ -24,11 +25,18 @@ Content-Type: application/json
 ###
 POST {{baseUrl}}/auth/login
 Content-Type: application/json
+Origin: {{browserOrigin}}
+X-CSRF-Protection: 1
 
 {
   "email": "abc@example.com",
   "password": "password123"
 }
+
+### Browser refresh: HTTP client must retain the Set-Cookie from login.
+POST {{baseUrl}}/auth/refresh
+Origin: {{browserOrigin}}
+X-CSRF-Protection: 1
 
 ###
 GET {{baseUrl}}/auth/me
@@ -93,4 +101,10 @@ Content-Type: application/json
 
 ### Verify persisted RAG messages
 GET {{baseUrl}}/chats/{{chatId}}/messages
+Authorization: Bearer {{accessToken}}
+
+### Browser logout: retain the cookie and supply the current access token.
+POST {{baseUrl}}/auth/logout
+Origin: {{browserOrigin}}
+X-CSRF-Protection: 1
 Authorization: Bearer {{accessToken}}

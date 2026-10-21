@@ -258,7 +258,8 @@ Enable the reranker and retry loop only after running the evaluation on your own
 | Group | Endpoint | Description |
 |---|---|---|
 | Auth | `POST /auth/register`, `POST /auth/login`, `GET /auth/me` | Account and token |
-| | `POST /auth/refresh`, `POST /auth/logout` | Rotate or revoke tokens |
+| | `POST /auth/refresh`, `POST /auth/logout` | Rotate/revoke the HttpOnly refresh cookie; trusted Origin and CSRF header required |
+| | `POST /auth/token/login`, `/auth/token/refresh`, `/auth/token/logout` | Optional JSON token flow for CLI/native clients; disabled by default |
 | | `POST /auth/forgot-password`, `POST /auth/reset-password` | Email-based password recovery |
 | Documents | `POST /documents/upload` | Validate and enqueue a PDF (returns `202`) |
 | | `GET /documents`, `GET /documents/{id}` | List and inspect documents |
@@ -309,7 +310,7 @@ The same applies to `/documents/events`. The API already sends `X-Accel-Bufferin
 
 Checklist:
 - Keep `.env` private; use a long random `SECRET_KEY`.
-- Set `BACKEND_CORS_ORIGINS` to your frontend domain.
+- Set `BACKEND_CORS_ORIGINS` and `AUTH_CSRF_TRUSTED_ORIGINS` to explicit frontend origins (no wildcards). Keep Secure refresh cookies enabled in production. See [Authentication](backend/docs/authentication.md) for local overrides and same-site deployment.
 - The API and the Celery worker must share the upload directory (`storage/uploads`) unless you add object storage.
 - Back up PostgreSQL and `storage/uploads`.
 - Avoid `docker compose down -v` unless you intend to delete database volumes.
@@ -328,7 +329,7 @@ Checklist:
 ## Security
 
 - Passwords are hashed with a modern adaptive algorithm; sessions use short-lived JWTs.
-- Login returns an access token and an opaque refresh token. Refresh tokens are stored as SHA-256 digests, rotated once per use, and revoked on logout. Reuse revokes all refresh sessions for that account.
+- Browser login returns an access token in JSON and a persistent, host-only HttpOnly refresh cookie. Login/refresh/logout require a trusted Origin and `X-CSRF-Protection: 1`. Refresh tokens are stored as SHA-256 digests, rotated once per use with absolute session expiry, and revoked on logout. Reuse revokes all refresh sessions for that account. Optional JSON-token endpoints are isolated from browser cookie authentication.
 - Protected requests check a Redis access-token blacklist. Redis outages return `503`; blacklist keys expire with the JWT. Password resets increment a DB token version to invalidate every existing access token and revoke all refresh tokens.
 - Password recovery uses expiring, single-use tokens delivered over SMTP by Celery, with generic responses and Redis rate limits. Configure `PASSWORD_RESET_URL` and SMTP settings in both API and worker environments.
 - See [Authentication](backend/docs/authentication.md) for payloads, configuration, deployment and the eight implementation lessons.

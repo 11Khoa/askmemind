@@ -44,10 +44,14 @@ class UserLogin(BaseModel):
         return normalize_email(value)
 
 
-class TokenResponse(BaseModel):
-    access_token: str
-    refresh_token: str
+class AccessTokenResponse(BaseModel):
+    access_token: str = Field(repr=False)
     token_type: str = "bearer"
+
+
+class TokenResponse(AccessTokenResponse):
+    refresh_token: str = Field(repr=False)
+    refresh_expires_at: datetime = Field(exclude=True)
 
 
 class RefreshTokenRequest(BaseModel):

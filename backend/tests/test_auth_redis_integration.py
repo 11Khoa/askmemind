@@ -46,7 +46,7 @@ def test_logout_blocks_protected_endpoint_with_real_redis(auth_client, auth_toke
         assert auth_client.get("/auth/me", headers=headers).status_code == 200
         assert (
             auth_client.post(
-                "/auth/logout",
+                "/auth/token/logout",
                 headers=headers,
                 json={"refresh_token": auth_tokens["refresh_token"]},
             ).status_code

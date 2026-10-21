@@ -1,4 +1,72 @@
 from app.core.config import Settings
+import pytest
+from pydantic import ValidationError
+
+
+def make_settings(**overrides):
+    return Settings(
+        _env_file=None, database_url="sqlite://", secret_key="test", **overrides
+    )
+
+
+@pytest.mark.parametrize("field", ["backend_cors_origins", "auth_csrf_trusted_origins"])
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "*",
+        "null",
+        "https://*.example.com",
+        "https://app.example.com/",
+        "https://app.example.com/path",
+        "https://user:password@app.example.com",
+        "https://app.example.com:bad",
+        "https://app.example.com?other",
+        "https://app.example.com#other",
+    ],
+)
+def test_origin_allowlists_reject_unsafe_values(monkeypatch, field, origin):
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name.upper(), raising=False)
+    with pytest.raises(ValidationError):
+        make_settings(**{field: origin})
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"auth_refresh_cookie_secure": False},
+        {
+            "environment": "local",
+            "auth_refresh_cookie_secure": False,
+            "auth_refresh_cookie_name": "refresh",
+            "auth_refresh_cookie_samesite": "none",
+        },
+        {"environment": "local", "auth_refresh_cookie_secure": False},
+        {"auth_refresh_cookie_path": "/auth"},
+        {"auth_refresh_cookie_path": "relative"},
+    ],
+)
+def test_unsafe_cookie_settings_fail_validation(monkeypatch, overrides):
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name.upper(), raising=False)
+    with pytest.raises(ValidationError):
+        make_settings(**overrides)
+
+
+def test_local_http_cookie_configuration_and_explicit_origins(monkeypatch):
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name.upper(), raising=False)
+    config = make_settings(
+        environment="local",
+        auth_refresh_cookie_secure=False,
+        auth_refresh_cookie_name="askmemind_refresh",
+        backend_cors_origins="http://localhost:5173,http://127.0.0.1:5173",
+        auth_csrf_trusted_origins="http://localhost:5173",
+    )
+    assert not config.auth_refresh_cookie_secure
+    assert config.csrf_trusted_origins == ("http://localhost:5173",)
+    assert config.cors_origins == ("http://localhost:5173", "http://127.0.0.1:5173")
+    assert not config.auth_json_tokens_enabled
 
 
 def test_default_embedding_settings_match_current_vector_schema(monkeypatch) -> None:
@@ -24,7 +92,7 @@ def test_default_embedding_settings_match_current_vector_schema(monkeypatch) -> 
     assert settings.agentic_retrieval_max_retries == 1
     assert settings.agentic_retrieval_min_confidence == 0.35
     assert settings.max_upload_size_mb == 25
-    assert settings.redis_url == 'redis://localhost:6379/0'
+    assert settings.redis_url == "redis://localhost:6379/0"
     assert settings.resolved_celery_broker_url == settings.redis_url
     assert settings.resolved_celery_result_backend == settings.redis_url
     assert settings.refresh_token_expire_days == 30
@@ -34,12 +102,12 @@ def test_default_embedding_settings_match_current_vector_schema(monkeypatch) -> 
 def test_celery_urls_can_override_redis_url() -> None:
     settings = Settings(
         _env_file=None,
-        database_url='postgresql://test:test@localhost:5432/test',
-        secret_key='test-secret',
-        redis_url='redis://redis:6379/0',
-        celery_broker_url='redis://broker:6379/1',
-        celery_result_backend='redis://backend:6379/2',
+        database_url="postgresql://test:test@localhost:5432/test",
+        secret_key="test-secret",
+        redis_url="redis://redis:6379/0",
+        celery_broker_url="redis://broker:6379/1",
+        celery_result_backend="redis://backend:6379/2",
     )
 
-    assert settings.resolved_celery_broker_url == 'redis://broker:6379/1'
-    assert settings.resolved_celery_result_backend == 'redis://backend:6379/2'
+    assert settings.resolved_celery_broker_url == "redis://broker:6379/1"
+    assert settings.resolved_celery_result_backend == "redis://backend:6379/2"
