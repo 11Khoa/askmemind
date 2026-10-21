@@ -43,6 +43,22 @@ npm run preview
 
 The production build is written to `dist/`.
 
+## Vercel deployment
+
+Set the Vercel project's Root Directory to `frontend/react` and select the
+branch containing the frontend changes for deployment. The `vercel.json` in
+that directory selects Vite, builds with `npm run build`, publishes `dist`,
+and serves the React entry page for `/reset-password` links.
+
+Set `VITE_API_URL` to the deployed backend origin in Vercel environment
+variables, then redeploy. Vite's local `/api` proxy is only used during local
+development. Allow the frontend origin in backend CORS settings.
+
+Configure `PASSWORD_RESET_URL` in the API and worker to
+`https://your-frontend.example/reset-password`. Verify both `/` and
+`/reset-password` on the deployed site; the latter shows an incomplete-link
+message when opened without a token.
+
 ## Authentication
 
 The client uses the access/refresh pair returned by `/auth/login`. Protected
