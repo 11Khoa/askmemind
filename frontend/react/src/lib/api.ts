@@ -3,11 +3,9 @@ import type {
   ChatMessage,
   Document,
   DocumentStatusEvent,
-  TokenResponse,
   User,
 } from './types'
-import { ApiError, authenticatedResponse, request } from './http'
-import { session } from './session'
+import { ApiError, authenticatedResponse, loginSession, logoutSession, request } from './http'
 
 export { ApiError } from './http'
 
@@ -70,10 +68,7 @@ export function isAbortError(error: unknown) {
 
 export const api = {
   login(email: string, password: string) {
-    return request<TokenResponse>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    })
+    return loginSession(email, password)
   },
 
   register(email: string, password: string) {
@@ -84,10 +79,7 @@ export const api = {
   },
 
   logout() {
-    return request<void>('/auth/logout', () => ({
-      method: 'POST',
-      body: JSON.stringify({ refresh_token: session.get()?.refresh_token }),
-    }), true)
+    return logoutSession()
   },
 
   forgotPassword(email: string) {

@@ -26,8 +26,8 @@ different origin:
 VITE_API_URL=https://api.example.com
 ```
 
-The value must not end with a slash. The backend must allow the frontend
-origin through its CORS configuration.
+The value must not end with a slash. Cross-origin deployments must allow the
+exact frontend origin, credentials and `X-CSRF-Protection` in backend CORS.
 
 ## Commands
 
@@ -61,15 +61,56 @@ message when opened without a token.
 
 ## Authentication
 
-The client uses the access/refresh pair returned by `/auth/login`. Protected
-requests (including streaming chat and document events) refresh once on `401`.
-Concurrent requests share one refresh operation; rotated refresh tokens are
-single-use. A failed refresh clears the session and requires signing in again.
-Logout calls `/auth/logout` with the current pair before clearing the session.
+The browser client expects the cookie-based backend contract below. It cannot
+persist a session with the old JSON-only refresh-token API. No backend changes
+are included in this frontend worktree change.
 
-Tokens are held only in memory, never in localStorage or sessionStorage.
-Reloading the page requires signing in again. Persistent browser sessions would
-require a backend change for Secure HttpOnly refresh cookies and CSRF protection.
+Access tokens stay in memory. Refresh tokens are managed exclusively by the
+browser through an HttpOnly cookie; React never reads or stores them. Old
+AskMeMind token keys in localStorage/sessionStorage are removed on startup.
+
+Every API request uses `credentials: 'include'`. Before loading protected data,
+the app calls `/auth/refresh` once to restore the session. A `401` without a
+valid cookie opens sign-in normally. Other startup failures display an error
+and allow retrying restoration. Protected requests, including chat/document
+streams, refresh once on `401` and retry once with the new access token.
+
+Concurrent requests share a refresh promise. Web Locks serialize login,
+refresh and logout across tabs on the same frontend origin in supported
+HTTPS/localhost browsers. BroadcastChannel propagates sign-in/sign-out without
+sharing any tokens. Cookie persistence across tab/browser restarts depends on
+the backend setting Max-Age/Expires and the browser allowing that cookie.
+
+## Browser auth API contract
+
+All paths below are relative to `VITE_API_URL` (default `/api`):
+
+| Request | Body | Successful response |
+| --- | --- | --- |
+| `POST /auth/login` | `{ "email": "...", "password": "..." }` | `200`, `{ "access_token": "...", "token_type": "bearer" }`, Set-Cookie |
+| `POST /auth/refresh` | No body | `200`, same access-token JSON, rotated Set-Cookie |
+| `POST /auth/logout` | No body; bearer access token in Authorization | `204`, revoke refresh/access tokens and clear cookie |
+
+The frontend sends `X-CSRF-Protection: 1` on these three requests. The backend
+must validate trusted Origin values and require appropriate CSRF protection;
+the header alone does not implement server-side protection. CORS must permit
+this header and credentials for explicit frontend origins. The browser sets
+Origin and Cookie automatically; React does not set either header.
+
+The backend must use HttpOnly and Secure in production, with SameSite suitable
+for the deployment and a persistent cookie lifetime bounded by the refresh
+session's absolute expiry. Cookie Path must cover these requests: `Path=/`
+works for both direct API origins and the local `/api` proxy. A cookie scoped
+only to `/auth` will not be sent to the browser-visible `/api/auth` paths.
+Cookie deletion must use the same name, path and domain as cookie creation.
+Never return the browser refresh token in JSON or log Cookie/Set-Cookie values.
+
+Prefer same-site custom domains (for example `app.example.com` and
+`api.example.com`) or a same-origin API proxy. A `vercel.app` frontend calling
+an unrelated API domain may be blocked by third-party cookie restrictions even
+with credentials included. SameSite=None requires Secure but does not override
+browser third-party cookie blocking. The local Vite proxy is not a production
+proxy; deployment/domain configuration must provide that separately.
 
 Password recovery uses `/auth/forgot-password` and `/auth/reset-password`.
 Configure `PASSWORD_RESET_URL=http://localhost:5173/reset-password` in both the
@@ -83,5 +124,7 @@ analytics. Configure the production host to serve `index.html` for
 it does not create a new session.
 
 Unit tests cover token rotation, concurrent requests, refresh failures, logout
-and recovery payloads. Playwright tests use mocked backend responses and cover
-login/logout and recovery on desktop/mobile. They do not send real reset emails.
+and recovery payloads. Playwright uses mocked backend responses that set real
+HttpOnly cookies in Chromium to cover reload/reopening, multi-tab rotation,
+logout, blocked storage and recovery on desktop/mobile. These tests do not
+validate the backend's cookie/CSRF implementation or send real reset emails.

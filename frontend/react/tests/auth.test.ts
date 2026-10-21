@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { api } from '../src/lib/api'
 import { session } from '../src/lib/session'
+import { restoreSession } from '../src/lib/http'
 
-const original = { access_token: 'old-access', refresh_token: 'old-refresh', token_type: 'bearer' }
-const rotated = { access_token: 'new-access', refresh_token: 'new-refresh', token_type: 'bearer' }
+const original = { access_token: 'old-access', token_type: 'bearer' }
+const rotated = { access_token: 'new-access', token_type: 'bearer' }
 const json = (data: unknown, status = 200) => Response.json(data, { status })
 const unauthorized = () => json({ detail: 'Token expired' }, 401)
 const fetchMock = vi.fn<typeof fetch>()
@@ -83,14 +84,17 @@ it('does not overwrite or retry into a different login during refresh', async ()
   expect(fetchMock).toHaveBeenCalledTimes(2)
 })
 
-it('logs out with the rotated pair and accepts an empty 204 response', async () => {
+it('logs out with cookies and a rotated access token, accepting an empty 204', async () => {
   fetchMock.mockResolvedValueOnce(unauthorized()).mockResolvedValueOnce(json(rotated))
     .mockResolvedValueOnce(new Response(null, { status: 204 }))
   await expect(api.logout()).resolves.toBeUndefined()
   const [url, init] = fetchMock.mock.calls.at(-1)!
   expect(String(url)).toMatch(/\/auth\/logout$/)
   expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer new-access')
-  expect(JSON.parse(init?.body as string)).toEqual({ refresh_token: rotated.refresh_token })
+  expect(init?.body).toBeUndefined()
+  expect(init?.credentials).toBe('include')
+  expect(new Headers(init?.headers).get('X-CSRF-Protection')).toBe('1')
+  expect(session.get()).toBeNull()
 })
 
 it('refreshes before streaming and delivers each question event once', async () => {
@@ -119,6 +123,57 @@ it('does not refresh for rejected login credentials', async () => {
   fetchMock.mockResolvedValueOnce(unauthorized())
   await expect(api.login('user@example.com', 'password')).rejects.toMatchObject({ status: 401 })
   expect(fetchMock).toHaveBeenCalledTimes(1)
+})
+
+it('shares startup restoration and waits before requesting protected data', async () => {
+  session.startRestore()
+  const refresh = Promise.withResolvers<Response>()
+  fetchMock.mockResolvedValueOnce(refresh.promise).mockResolvedValueOnce(json([]))
+  const pending = Promise.all([restoreSession(), restoreSession(), api.listChats()])
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+  expect(session.status()).toBe('restoring')
+  refresh.resolve(json(rotated))
+  await pending
+  expect(refreshCalls()).toHaveLength(1)
+  expect(session.status()).toBe('authenticated')
+  expect(new Headers(fetchMock.mock.calls.at(-1)?.[1]?.headers).get('Authorization')).toBe('Bearer new-access')
+})
+
+it('refreshes using only the HttpOnly cookie, without a JSON token or bearer header', async () => {
+  session.startRestore()
+  fetchMock.mockResolvedValueOnce(json(rotated))
+  await restoreSession()
+  const [, init] = refreshCalls()[0]
+  expect(init?.body).toBeUndefined()
+  expect(init?.credentials).toBe('include')
+  expect(init?.cache).toBe('no-store')
+  const headers = new Headers(init?.headers)
+  expect(headers.get('X-CSRF-Protection')).toBe('1')
+  expect(headers.has('Authorization')).toBe(false)
+  expect(headers.has('Cookie')).toBe(false)
+})
+
+it('uses cookie credentials for login and drops legacy refresh tokens from the response', async () => {
+  fetchMock.mockResolvedValueOnce(json({ ...rotated, refresh_token: 'must-not-enter-state' }))
+  await expect(api.login('user@example.com', 'password')).resolves.toEqual(rotated)
+  expect(fetchMock.mock.calls[0][1]?.credentials).toBe('include')
+  expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('X-CSRF-Protection')).toBe('1')
+})
+
+it('allows first-time anonymous startup without repeatedly refreshing', async () => {
+  session.startRestore()
+  fetchMock.mockResolvedValueOnce(unauthorized())
+  await expect(restoreSession()).rejects.toMatchObject({ status: 401 })
+  expect(session.status()).toBe('anonymous')
+  await restoreSession()
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+})
+
+it('rejects malformed refresh responses instead of marking the user authenticated', async () => {
+  session.startRestore()
+  fetchMock.mockResolvedValueOnce(json({ token_type: 'bearer' }))
+  await expect(restoreSession()).rejects.toMatchObject({ status: 502 })
+  expect(session.status()).toBe('anonymous')
 })
 
 it('preserves rate-limit errors from the backend', async () => {

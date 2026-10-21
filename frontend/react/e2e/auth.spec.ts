@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test'
 
+test.beforeEach(async ({ context }) => {
+  await context.route('**/api/auth/refresh', (route) =>
+    route.fulfill({ status: 401, json: { detail: 'No refresh cookie' } }))
+})
+
 test('forgot password shows a generic confirmation and lets the user sign in', async ({ page }) => {
   let sent: unknown
   await page.route('**/api/auth/forgot-password', async (route) => {
@@ -57,43 +62,151 @@ test('missing reset token and expired reset link allow recovery', async ({ page 
   await expect(page.getByRole('alert')).toHaveText('Invalid or expired reset token')
 })
 
-test('login refreshes once, logout revokes the current pair and tokens stay out of storage', async ({ page }, testInfo) => {
+
+test('HttpOnly cookie survives reload/reopening, rotates across tabs and clears on logout', async ({ page, context }, testInfo) => {
   let refreshes = 0
-  let logout: unknown
-  const old = { access_token: 'old-access', refresh_token: 'old-refresh', token_type: 'bearer' }
-  const next = { access_token: 'new-access', refresh_token: 'new-refresh', token_type: 'bearer' }
-  await page.route('**/api/**', async (route) => {
+  let logoutCookie = ''
+  let logoutBody: string | null = null
+  let currentCookie = ''
+  const validAccess = new Set<string>()
+  const usedCookies = new Set<string>()
+  const cookieHeader = (value: string, maxAge = 3600) =>
+    `askmemind_refresh=${value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}`
+
+  await context.route('**/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname
-    if (path === '/api/auth/login') return route.fulfill({ json: old })
+    const headers = await route.request().allHeaders()
+    const rawCookie = headers.cookie?.match(/(?:^|; *)askmemind_refresh=([^;]+)/)?.[1] || ''
+    if (path === '/api/auth/login') {
+      expect(headers['x-csrf-protection']).toBe('1')
+      currentCookie = 'original-cookie'
+      return route.fulfill({
+        json: { access_token: 'expired-access', token_type: 'bearer' },
+        headers: { 'Set-Cookie': cookieHeader(currentCookie) },
+      })
+    }
     if (path === '/api/auth/refresh') {
+      expect(route.request().postData()).toBeNull()
+      expect(headers['x-csrf-protection']).toBe('1')
+      if (!rawCookie || rawCookie !== currentCookie || usedCookies.has(rawCookie)) {
+        return route.fulfill({ status: 401, json: { detail: 'Invalid refresh cookie' } })
+      }
+      usedCookies.add(rawCookie)
       refreshes += 1
       await new Promise((resolve) => setTimeout(resolve, 100))
-      return route.fulfill({ json: next })
+      currentCookie = `rotated-cookie-${refreshes}`
+      const access = `new-access-${refreshes}`
+      validAccess.add(`Bearer ${access}`)
+      return route.fulfill({
+        json: { access_token: access, token_type: 'bearer' },
+        headers: { 'Set-Cookie': cookieHeader(currentCookie) },
+      })
     }
-    if (route.request().headers().authorization !== 'Bearer new-access') {
-      return route.fulfill({ status: 401, json: { detail: 'Expired' } })
+    if (!validAccess.has(headers.authorization)) {
+      return route.fulfill({ status: 401, json: { detail: 'Expired access token' } })
     }
     if (path === '/api/auth/me') {
       return route.fulfill({ json: { id: 'user', email: 'user@example.com', is_active: true } })
     }
     if (path === '/api/auth/logout') {
-      logout = route.request().postDataJSON()
-      return route.fulfill({ status: 204 })
+      expect(headers['x-csrf-protection']).toBe('1')
+      logoutCookie = rawCookie
+      logoutBody = route.request().postData()
+      currentCookie = ''
+      return route.fulfill({ status: 204, headers: { 'Set-Cookie': cookieHeader('', 0) } })
     }
     if (path === '/api/documents/events') {
       return route.fulfill({ contentType: 'text/event-stream', body: ': heartbeat\n\n' })
     }
     return route.fulfill({ json: [] })
   })
+
   await page.goto('/')
   await page.getByLabel('Email', { exact: true }).fill('user@example.com')
   await page.getByLabel('Password', { exact: true }).fill('password')
   await page.locator('form').getByRole('button', { name: 'Sign in' }).click()
   await expect(page.getByRole('heading', { name: 'What would you like to understand?' })).toBeVisible()
   expect(refreshes).toBe(1)
-  expect(await page.evaluate(() => ({ ...localStorage, ...sessionStorage }))).toEqual({})
-  if (testInfo.project.name === 'mobile') await page.getByRole('button', { name: 'Open navigation' }).click()
-  await page.getByRole('button', { name: 'Sign out' }).click()
+  expect(await page.evaluate(() => ({ local: { ...localStorage }, tab: { ...sessionStorage } }))).toEqual({ local: {}, tab: {} })
+  expect(await page.evaluate(() => document.cookie)).not.toContain('askmemind_refresh')
+  const cookie = (await context.cookies()).find((item) => item.name === 'askmemind_refresh')
+  expect(cookie?.httpOnly).toBe(true)
+  expect(cookie?.expires).toBeGreaterThan(Date.now() / 1000)
+
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'What would you like to understand?' })).toBeVisible()
+  expect(refreshes).toBe(2)
+  const other = await context.newPage()
+  await other.goto('/')
+  await expect(other.getByRole('heading', { name: 'What would you like to understand?' })).toBeVisible()
+  expect(refreshes).toBe(3)
+  await Promise.all([page.reload(), other.reload()])
+  for (const tab of [page, other]) {
+    await expect(tab.getByRole('heading', { name: 'What would you like to understand?' })).toBeVisible()
+  }
+  expect(refreshes).toBe(5)
+  await page.close()
+  const reopened = await context.newPage()
+  await reopened.goto('/')
+  await expect(reopened.getByRole('heading', { name: 'What would you like to understand?' })).toBeVisible()
+  expect(refreshes).toBe(6)
+  if (testInfo.project.name === 'mobile') await other.getByRole('button', { name: 'Open navigation' }).click()
+  await other.getByRole('button', { name: 'Sign out' }).click()
+  for (const tab of [other, reopened]) {
+    await expect(tab.getByRole('heading', { name: 'Sign in to your workspace' })).toBeVisible()
+  }
+  expect(logoutCookie).toBe('rotated-cookie-6')
+  expect(logoutBody).toBeNull()
+  expect((await context.cookies()).find((item) => item.name === 'askmemind_refresh')).toBeUndefined()
+  await reopened.reload()
+  await expect(reopened.getByRole('heading', { name: 'Sign in to your workspace' })).toBeVisible()
+  expect(refreshes).toBe(6)
+})
+
+test('startup outages show a retry and an absent cookie returns quietly to sign-in', async ({ page, context }) => {
+  let attempts = 0
+  await context.route('**/api/auth/refresh', async (route) => {
+    attempts += 1
+    await route.fulfill(attempts === 1
+      ? { status: 503, json: { detail: 'Auth temporarily unavailable' } }
+      : { status: 401, json: { detail: 'No refresh cookie' } })
+  })
+  await page.goto('/')
+  await expect(page.getByRole('alert')).toContainText('Your session could not be restored')
+  await page.getByRole('button', { name: 'Retry restoring session' }).click()
   await expect(page.getByRole('heading', { name: 'Sign in to your workspace' })).toBeVisible()
-  expect(logout).toEqual({ refresh_token: 'new-refresh' })
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  expect(attempts).toBe(2)
+})
+
+test('cookie authentication works with blocked browser storage', async ({ page, context }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'localStorage', { get() { throw new DOMException('Blocked', 'SecurityError') } })
+    Object.defineProperty(window, 'sessionStorage', { get() { throw new DOMException('Blocked', 'SecurityError') } })
+  })
+  await context.route('**/api/auth/login', (route) => route.fulfill({
+    json: { access_token: 'memory-only', token_type: 'bearer' },
+    headers: { 'Set-Cookie': 'askmemind_refresh=opaque; HttpOnly; SameSite=Lax; Path=/; Max-Age=3600' },
+  }))
+  await context.route('**/api/auth/me', (route) => route.fulfill({ json: { id: 'user', email: 'user@example.com' } }))
+  await context.route('**/api/documents', (route) => route.fulfill({ json: [] }))
+  await context.route('**/api/chats', (route) => route.fulfill({ json: [] }))
+  await context.route('**/api/documents/events', (route) => route.fulfill({ contentType: 'text/event-stream', body: ': ping\n\n' }))
+  await page.goto('/')
+  await page.getByLabel('Email', { exact: true }).fill('user@example.com')
+  await page.getByLabel('Password', { exact: true }).fill('password')
+  await page.locator('form').getByRole('button', { name: 'Sign in' }).click()
+  await expect(page.getByRole('heading', { name: 'What would you like to understand?' })).toBeVisible()
+})
+
+test('legacy access and refresh tokens are removed instead of reused', async ({ page }) => {
+  await page.addInitScript(() => {
+    for (const storage of [localStorage, sessionStorage]) {
+      storage.setItem('askmemind_access_token', 'legacy-access')
+      storage.setItem('askmemind_refresh_token', 'legacy-refresh')
+    }
+  })
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'Sign in to your workspace' })).toBeVisible()
+  expect(await page.evaluate(() => ({ local: { ...localStorage }, tab: { ...sessionStorage } }))).toEqual({ local: {}, tab: {} })
 })

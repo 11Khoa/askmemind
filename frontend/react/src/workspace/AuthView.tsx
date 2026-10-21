@@ -20,9 +20,10 @@ type AuthViewProps = {
   resetToken?: string
   onResetFinished: () => void
   notice?: string
+  onRetrySession: () => void
 }
 
-export function AuthView({ onAuthenticated, resetToken, onResetFinished, notice }: AuthViewProps) {
+export function AuthView({ onAuthenticated, resetToken, onResetFinished, notice, onRetrySession }: AuthViewProps) {
   const { t } = useTranslation()
   const [mode, setMode] = useState<AuthMode>(resetToken === undefined ? 'login' : 'reset')
   const [email, setEmail] = useState('')
@@ -143,6 +144,9 @@ export function AuthView({ onAuthenticated, resetToken, onResetFinished, notice 
           </div>}
 
           {notice && <div className="form-error" role="alert">{notice}</div>}
+          {notice && <button className="auth-link" type="button" disabled={submitting} onClick={onRetrySession}>
+            {t('auth.retrySession')}
+          </button>}
           {completed && (
             <div className="form-success" role="status">
               {t(mode === 'forgot' ? 'auth.resetEmailSent' : 'auth.passwordResetSuccess')}

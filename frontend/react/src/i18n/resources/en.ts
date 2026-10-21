@@ -55,6 +55,8 @@ export const en = {
     requestNewLink: 'Request a new reset link',
     backToSignIn: 'Back to sign in',
     logoutFailed: 'You have been signed out on this page, but the server session may still be active.',
+    sessionExpired: 'Your session could not be restored. Please sign in again.',
+    retrySession: 'Retry restoring session',
     footnote: 'Your questions are answered only from your uploaded documents.',
   },
   workspace: {

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Analytics } from '@vercel/analytics/react'
 import { useTranslation } from 'react-i18next'
+import { BookOpenText, LoaderCircle } from 'lucide-react'
 
 import { api } from '../lib/api'
+import { ApiError, restoreSession } from '../lib/http'
 import { session } from '../lib/session'
 import { AuthView } from './AuthView'
 import { Workspace } from './Workspace'
@@ -17,18 +19,22 @@ function consumeResetLink() {
   return { token, id: ++resetSequence }
 }
 const initialResetLink = consumeResetLink()
-try {
-  window.localStorage.removeItem('askmemind_access_token')
-} catch {
-  // Authentication also works when browser storage is unavailable.
-}
 
 export default function AppRoot() {
   const { t } = useTranslation()
-  const authenticated = useSyncExternalStore(session.subscribe, session.isAuthenticated)
+  const sessionStatus = useSyncExternalStore(session.subscribe, session.status)
   const [resetLink, setResetLink] = useState(initialResetLink)
   const [authNotice, setAuthNotice] = useState('')
   const loggingOut = useRef(false)
+
+  useEffect(() => {
+    if (resetLink || sessionStatus !== 'restoring') return
+    void restoreSession().catch((error: unknown) => {
+      if (!(error instanceof ApiError && error.status === 401)) {
+        setAuthNotice(t('auth.sessionExpired'))
+      }
+    })
+  }, [resetLink, sessionStatus, t])
 
   useEffect(() => {
     let lastUrl = window.location.href
@@ -54,7 +60,6 @@ export default function AppRoot() {
     } catch {
       setAuthNotice(t('auth.logoutFailed'))
     } finally {
-      session.set(null)
       loggingOut.current = false
     }
   }, [t])
@@ -67,13 +72,20 @@ export default function AppRoot() {
 
   return (
     <>
-      {resetLink || !authenticated ? (
+      {!resetLink && sessionStatus === 'restoring' ? (
+        <main className="loading-screen" aria-busy="true">
+          <span className="brand-mark"><BookOpenText size={21} /></span>
+          <LoaderCircle className="spin" size={25} />
+          <p>{t('workspace.loading')}</p>
+        </main>
+      ) : resetLink || sessionStatus !== 'authenticated' ? (
         <AuthView
           key={resetLink?.id ?? 'sign-in'}
           onAuthenticated={(tokens) => { setAuthNotice(''); session.set(tokens) }}
           resetToken={resetLink?.token}
           onResetFinished={finishReset}
           notice={authNotice}
+          onRetrySession={() => { setAuthNotice(''); session.startRestore() }}
         />
       ) : (
         <Workspace onLogout={() => { void logout() }} />
