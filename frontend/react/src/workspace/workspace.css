@@ -1211,7 +1211,7 @@ select:focus-visible {
 
   .conversation { height: calc(100dvh - 12px); grid-template-rows: 62px minmax(0, 1fr) auto auto auto; }
 
-  .conversation-head { padding: 0 12px; }
+  .conversation-head { padding: 0 12px; width: 100vw;}
 
   .head-actions { gap: 0; }
 

@@ -108,7 +108,7 @@ async function readSseStream(
   }
 }
 
-function isAbortError(error: unknown) {
+export function isAbortError(error: unknown) {
   return error instanceof DOMException && error.name === 'AbortError'
 }
 
@@ -230,6 +230,7 @@ export const api = {
     documentId: string | null,
     topK: number,
     handlers: QuestionStreamHandlers,
+    signal?: AbortSignal,
   ) {
     const response = await fetch(`${API_BASE_URL}/chats/${chatId}/questions/stream`, {
       method: 'POST',
@@ -242,6 +243,7 @@ export const api = {
         document_id: documentId,
         top_k: topK,
       }),
+      signal,
     })
 
     if (!response.ok) {
