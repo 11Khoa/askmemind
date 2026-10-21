@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import AnyHttpUrl, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,8 +13,16 @@ class Settings(BaseSettings):
     database_url: str
     secret_key: str
     jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 30
+    access_token_expire_minutes: int = Field(default=30, ge=1, le=1440)
     refresh_token_expire_days: int = Field(default=30, ge=1, le=365)
+    password_reset_expire_minutes: int = Field(default=15, ge=1, le=60)
+    password_reset_url: AnyHttpUrl | None = None
+    smtp_host: str = ""
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: str = ""
+    smtp_password: SecretStr = Field(default=SecretStr(""))
+    smtp_from_email: str = ""
+    smtp_use_ssl: bool = False
     enable_registration: bool = True
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 

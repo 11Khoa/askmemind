@@ -21,9 +21,12 @@ from app.repositories.chat_repository import ChatRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.user_repository import UserRepository
 from app.repositories.refresh_token_repository import RefreshTokenRepository
+from app.repositories.password_reset_repository import PasswordResetRepository
 from app.repositories.chunk_repository import ChunkRepository
 from app.services.auth_service import AuthService
 from app.services.token_store import TokenStore
+from app.services.password_reset_service import PasswordResetService
+from app.services.reset_email_service import ResetEmailService
 from app.services.chat_service import ChatService
 from app.services.document_service import DocumentService
 from app.services.file_storage_service import FileStorageService
@@ -75,12 +78,26 @@ def get_auth_service(
     )
 
 
+def get_password_reset_service(
+    db: Annotated[Session, Depends(get_db)],
+) -> PasswordResetService:
+    return PasswordResetService(
+        UserRepository(db),
+        PasswordResetRepository(db),
+        ResetEmailService(settings),
+    )
+
+
 @lru_cache
 def get_token_store() -> TokenStore:
-    return TokenStore(Redis.from_url(
-        settings.redis_url, socket_timeout=2, socket_connect_timeout=2,
-        decode_responses=True,
-    ))
+    return TokenStore(
+        Redis.from_url(
+            settings.redis_url,
+            socket_timeout=2,
+            socket_connect_timeout=2,
+            decode_responses=True,
+        )
+    )
 
 
 def get_current_access_payload(
@@ -98,7 +115,11 @@ def get_current_access_payload(
         ) from error
 
     if token_store.is_revoked(token_payload.jti):
-        raise HTTPException(status_code=401, detail="Token has been revoked", headers={"WWW-Authenticate": "Bearer"})
+        raise HTTPException(
+            status_code=401,
+            detail="Token has been revoked",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return token_payload
 
 
@@ -110,7 +131,11 @@ def get_current_user(
     user_repository = UserRepository(db=db)
     user = user_repository.get_user_by_id(user_id)
 
-    if user is None or not user.is_active:
+    if (
+        user is None
+        or not user.is_active
+        or user.token_version != token_payload.token_version
+    ):
         raise HTTPException(
             status_code=401,
             detail="Could not validate credentials",

@@ -1,14 +1,29 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from app.core.config import settings
 from app.core.dependencies import (
-    get_auth_service, get_current_user, get_current_access_payload, get_token_store,
+    get_auth_service,
+    get_current_user,
+    get_current_access_payload,
+    get_token_store,
+    get_password_reset_service,
 )
-from app.core.security import AccessTokenPayload
+from app.core.logging import get_request_id
+from app.core.security import AccessTokenPayload, hash_token
 from app.services.token_store import TokenStore
-from app.schemas.user import UserCreate, UserRead, UserLogin, TokenResponse, RefreshTokenRequest
+from app.services.password_reset_service import PasswordResetService
+from app.services.reset_email_service import ResetEmailService
+from app.tasks.password_reset import send_password_reset
+from app.schemas.user import (
+    UserCreate,
+    UserRead,
+    UserLogin,
+    TokenResponse,
+    RefreshTokenRequest,
+)
+from app.schemas.user import ForgotPasswordRequest, ResetPasswordRequest
 from app.services.auth_service import AuthService
 from app.models.user import User
 
@@ -89,4 +104,56 @@ def logout(
     except ValueError as error:
         raise HTTPException(status_code=401, detail=str(error)) from error
     token_store.revoke_access(access_payload)
+    return Response(status_code=204)
+
+
+@router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED)
+def forgot_password(
+    payload: ForgotPasswordRequest,
+    request: Request,
+    token_store: Annotated[TokenStore, Depends(get_token_store)],
+):
+    if not ResetEmailService(settings).is_configured():
+        raise HTTPException(
+            status_code=503, detail="Password reset temporarily unavailable"
+        )
+    ip = request.client.host if request.client else "unknown"
+    if not token_store.allow_request(f"forgot:ip:{hash_token(ip)}", 10, 3600):
+        raise HTTPException(
+            status_code=429, detail="Too many requests", headers={"Retry-After": "3600"}
+        )
+    message = {"message": "If the account exists, a password reset email will be sent."}
+    if not token_store.allow_request(
+        f"forgot:email:{hash_token(payload.email)}", 3, 3600
+    ):
+        return message
+    try:
+        # Queue both existing and unknown emails; account lookup happens in the worker.
+        send_password_reset.apply_async(
+            kwargs={"email": payload.email, "request_id": get_request_id()},
+            kwargsrepr="<redacted>",
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=503, detail="Password reset temporarily unavailable"
+        ) from None
+    return message
+
+
+@router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+def reset_password(
+    payload: ResetPasswordRequest,
+    request: Request,
+    service: Annotated[PasswordResetService, Depends(get_password_reset_service)],
+    token_store: Annotated[TokenStore, Depends(get_token_store)],
+):
+    ip = request.client.host if request.client else "unknown"
+    if not token_store.allow_request(f"reset:ip:{hash_token(ip)}", 10, 60):
+        raise HTTPException(
+            status_code=429, detail="Too many requests", headers={"Retry-After": "60"}
+        )
+    try:
+        service.reset(payload.token, payload.new_password)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     return Response(status_code=204)

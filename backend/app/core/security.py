@@ -26,6 +26,7 @@ class AccessTokenPayload:
     jti: str
     issued_at: datetime
     expires_at: datetime
+    token_version: int = 0
 
 
 def hash_password(password: str) -> str:
@@ -36,7 +37,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return password_hash.verify(plain_password, hashed_password)
 
 
-def create_access_token(subject: str) -> str:
+def create_access_token(subject: str, token_version: int = 0) -> str:
     issued_at = datetime.now(timezone.utc)
     expires_at = issued_at + timedelta(
         minutes=settings.access_token_expire_minutes,
@@ -47,6 +48,7 @@ def create_access_token(subject: str) -> str:
         "jti": str(uuid.uuid4()),
         "iat": issued_at,
         "exp": expires_at,
+        "ver": token_version,
     }
 
     return jwt.encode(
@@ -70,6 +72,7 @@ def decode_access_token(token: str) -> AccessTokenPayload:
     jti = payload.get("jti")
     expires_at = payload.get("exp")
     issued_at = payload.get("iat")
+    token_version = payload.get("ver", 0)
 
     if not isinstance(subject, str) or not subject:
         raise ValueError("Token subject must be a string")
@@ -84,6 +87,8 @@ def decode_access_token(token: str) -> AccessTokenPayload:
         raise ValueError("Token issued-at must be an integer timestamp")
     if issued_at >= expires_at:
         raise ValueError("Token expiration must be after issued-at")
+    if type(token_version) is not int or token_version < 0:
+        raise ValueError("Invalid token version")
 
     try:
         return AccessTokenPayload(
@@ -91,6 +96,7 @@ def decode_access_token(token: str) -> AccessTokenPayload:
             jti=jti,
             issued_at=datetime.fromtimestamp(issued_at, tz=timezone.utc),
             expires_at=datetime.fromtimestamp(expires_at, tz=timezone.utc),
+            token_version=token_version,
         )
     except (OverflowError, OSError) as error:
         raise ValueError("Invalid token timestamps") from error

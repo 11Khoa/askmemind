@@ -29,3 +29,14 @@ class TokenStore:
             self.client.set(f"auth:revoked:{payload.jti}", "1", ex=ttl)
         except RedisError as error:
             raise TokenStoreUnavailable() from error
+
+    def allow_request(self, key: str, limit: int, window: int) -> bool:
+        script = """
+        local count = redis.call('INCR', KEYS[1])
+        if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+        return count
+        """
+        try:
+            return self.client.eval(script, 1, f"auth:rate:{key}", window) <= limit
+        except RedisError as error:
+            raise TokenStoreUnavailable() from error

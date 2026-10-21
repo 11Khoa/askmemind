@@ -1,29 +1,13 @@
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from unittest.mock import Mock
-from fastapi.testclient import TestClient
 
-from app.core.dependencies import get_db, get_token_store
+from app.core.dependencies import get_token_store
 from app.services.token_store import TokenStore, TokenStoreUnavailable
 from app.core.security import hash_token
 from app.main import app
 from app.models.refresh_token import RefreshToken
 from app.models.user import User
-
-
-@pytest.fixture
-def auth_client(db_session):
-    app.dependency_overrides[get_db] = lambda: db_session
-    revoked = set()
-    store = Mock(spec=TokenStore)
-    store.is_revoked.side_effect = lambda jti: jti in revoked
-    store.revoke_access.side_effect = lambda payload: revoked.add(payload.jti)
-    app.dependency_overrides[get_token_store] = lambda: store
-    try:
-        yield TestClient(app)
-    finally:
-        app.dependency_overrides.clear()
 
 
 def login(client):
@@ -36,10 +20,16 @@ def login(client):
 
 def test_rotation_and_replay_revoke_replacement(auth_client, db_session):
     first = login(auth_client)
-    original = db_session.query(RefreshToken).filter_by(
-        token_hash=hash_token(first["refresh_token"]),
-    ).one()
-    response = auth_client.post("/auth/refresh", json={"refresh_token": first["refresh_token"]})
+    original = (
+        db_session.query(RefreshToken)
+        .filter_by(
+            token_hash=hash_token(first["refresh_token"]),
+        )
+        .one()
+    )
+    response = auth_client.post(
+        "/auth/refresh", json={"refresh_token": first["refresh_token"]}
+    )
     assert response.status_code == 200
     second = response.json()
     assert second["refresh_token"] != first["refresh_token"]
@@ -49,17 +39,62 @@ def test_rotation_and_replay_revoke_replacement(auth_client, db_session):
     replacement = db_session.get(RefreshToken, original.replaced_by_token_id)
     assert replacement.token_hash == hash_token(second["refresh_token"])
     assert replacement.expires_at == original.expires_at
-    assert auth_client.post("/auth/refresh", json={"refresh_token": first["refresh_token"]}).status_code == 401
-    assert auth_client.post("/auth/refresh", json={"refresh_token": second["refresh_token"]}).status_code == 401
+    assert (
+        auth_client.post(
+            "/auth/refresh", json={"refresh_token": first["refresh_token"]}
+        ).status_code
+        == 401
+    )
+    assert (
+        auth_client.post(
+            "/auth/refresh", json={"refresh_token": second["refresh_token"]}
+        ).status_code
+        == 401
+    )
 
 
 def test_refresh_rejects_expired_and_unknown_tokens(auth_client, db_session):
     tokens = login(auth_client)
-    token = db_session.query(RefreshToken).filter_by(token_hash=hash_token(tokens["refresh_token"])).one()
+    token = (
+        db_session.query(RefreshToken)
+        .filter_by(token_hash=hash_token(tokens["refresh_token"]))
+        .one()
+    )
     token.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
     db_session.commit()
     for raw in [tokens["refresh_token"], "x" * 43]:
-        assert auth_client.post("/auth/refresh", json={"refresh_token": raw}).status_code == 401
+        assert (
+            auth_client.post("/auth/refresh", json={"refresh_token": raw}).status_code
+            == 401
+        )
+
+
+def test_expired_replay_does_not_revoke_new_login(auth_client, db_session):
+    first = login(auth_client)
+    token = (
+        db_session.query(RefreshToken)
+        .filter_by(token_hash=hash_token(first["refresh_token"]))
+        .one()
+    )
+    token.revoked_at = datetime.now(timezone.utc)
+    token.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    db_session.commit()
+    second = auth_client.post(
+        "/auth/login",
+        json={"email": "lifecycle@example.com", "password": "test-password-123"},
+    ).json()
+    assert (
+        auth_client.post(
+            "/auth/refresh", json={"refresh_token": first["refresh_token"]}
+        ).status_code
+        == 401
+    )
+    assert (
+        auth_client.post(
+            "/auth/refresh", json={"refresh_token": second["refresh_token"]}
+        ).status_code
+        == 200
+    )
 
 
 def test_disabled_user_cannot_login_refresh_or_authenticate(auth_client, db_session):
@@ -67,16 +102,33 @@ def test_disabled_user_cannot_login_refresh_or_authenticate(auth_client, db_sess
     user = db_session.query(User).filter_by(email="lifecycle@example.com").one()
     user.is_active = False
     db_session.commit()
-    assert auth_client.post("/auth/login", json={"email": user.email, "password": "test-password-123"}).status_code == 401
-    assert auth_client.post("/auth/refresh", json={"refresh_token": tokens["refresh_token"]}).status_code == 401
-    assert auth_client.get("/auth/me", headers={"Authorization": f"Bearer {tokens['access_token']}"}).status_code == 401
+    assert (
+        auth_client.post(
+            "/auth/login", json={"email": user.email, "password": "test-password-123"}
+        ).status_code
+        == 401
+    )
+    assert (
+        auth_client.post(
+            "/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
+        ).status_code
+        == 401
+    )
+    assert (
+        auth_client.get(
+            "/auth/me", headers={"Authorization": f"Bearer {tokens['access_token']}"}
+        ).status_code
+        == 401
+    )
 
 
 def test_logout_revokes_refresh_token(auth_client):
     tokens = login(auth_client)
     headers = {"Authorization": f"Bearer {tokens['access_token']}"}
     body = {"refresh_token": tokens["refresh_token"]}
-    assert auth_client.post("/auth/logout", headers=headers, json=body).status_code == 204
+    assert (
+        auth_client.post("/auth/logout", headers=headers, json=body).status_code == 204
+    )
     assert auth_client.get("/auth/me", headers=headers).status_code == 401
     assert auth_client.post("/auth/refresh", json=body).status_code == 401
 
@@ -92,7 +144,12 @@ def test_logout_cannot_revoke_another_users_token(auth_client):
         json={"refresh_token": second["refresh_token"]},
     )
     assert response.status_code == 401
-    assert auth_client.post("/auth/refresh", json={"refresh_token": second["refresh_token"]}).status_code == 200
+    assert (
+        auth_client.post(
+            "/auth/refresh", json={"refresh_token": second["refresh_token"]}
+        ).status_code
+        == 200
+    )
 
 
 def test_authentication_fails_closed_when_redis_is_unavailable(auth_client):
@@ -100,6 +157,8 @@ def test_authentication_fails_closed_when_redis_is_unavailable(auth_client):
     store = Mock(spec=TokenStore)
     store.is_revoked.side_effect = TokenStoreUnavailable()
     app.dependency_overrides[get_token_store] = lambda: store
-    response = auth_client.get("/auth/me", headers={"Authorization": f"Bearer {tokens['access_token']}"})
+    response = auth_client.get(
+        "/auth/me", headers={"Authorization": f"Bearer {tokens['access_token']}"}
+    )
     assert response.status_code == 503
     assert response.json()["detail"] == "Authentication temporarily unavailable"

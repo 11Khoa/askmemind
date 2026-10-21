@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, String, func
+from sqlalchemy import Boolean, DateTime, Integer, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -51,6 +51,8 @@ class User(Base):
         default=True,
         nullable=False,
     )
+
+    token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

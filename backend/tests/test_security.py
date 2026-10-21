@@ -125,12 +125,26 @@ def test_decode_access_token_requires_jti() -> None:
 
 @pytest.mark.parametrize(
     "claim,value",
-    [("sub", ""), ("jti", ""), ("iat", None), ("iat", "123"),
-     ("iat", True), ("exp", True), ("exp", 9999999999.5)],
+    [
+        ("sub", ""),
+        ("jti", ""),
+        ("iat", None),
+        ("iat", "123"),
+        ("iat", True),
+        ("exp", True),
+        ("exp", 9999999999.5),
+        ("ver", -1),
+        ("ver", True),
+        ("ver", "0"),
+    ],
 )
 def test_decode_rejects_invalid_claim_types(claim, value):
-    payload = {"sub": str(uuid.uuid4()), "jti": str(uuid.uuid4()),
-               "iat": 1, "exp": 9999999999}
+    payload = {
+        "sub": str(uuid.uuid4()),
+        "jti": str(uuid.uuid4()),
+        "iat": 1,
+        "exp": 9999999999,
+    }
     payload[claim] = value
     token = jwt.encode(payload, settings.secret_key, algorithm=settings.jwt_algorithm)
     with pytest.raises((ValueError, jwt.PyJWTError)):

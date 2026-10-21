@@ -52,3 +52,17 @@ class TokenResponse(BaseModel):
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str = Field(min_length=32, max_length=256)
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def _normalize_email(cls, value: str) -> str:
+        return normalize_email(value)
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=256)
+    new_password: str = Field(min_length=8, max_length=128)

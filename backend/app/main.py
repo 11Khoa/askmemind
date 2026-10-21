@@ -82,6 +82,9 @@ async def request_observability_middleware(request: Request, call_next):
             duration_ms=round(duration_ms, 2),
         )
         response.headers["X-Request-ID"] = get_request_id() or ""
+        if request.url.path.startswith("/auth/"):
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Pragma"] = "no-cache"
         return response
     except Exception:
         duration_ms = (perf_counter() - started_at) * 1000

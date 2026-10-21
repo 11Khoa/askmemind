@@ -258,6 +258,8 @@ Enable the reranker and retry loop only after running the evaluation on your own
 | Group | Endpoint | Description |
 |---|---|---|
 | Auth | `POST /auth/register`, `POST /auth/login`, `GET /auth/me` | Account and token |
+| | `POST /auth/refresh`, `POST /auth/logout` | Rotate or revoke tokens |
+| | `POST /auth/forgot-password`, `POST /auth/reset-password` | Email-based password recovery |
 | Documents | `POST /documents/upload` | Validate and enqueue a PDF (returns `202`) |
 | | `GET /documents`, `GET /documents/{id}` | List and inspect documents |
 | | `GET /documents/events` | SSE stream of document status changes |
@@ -326,6 +328,10 @@ Checklist:
 ## Security
 
 - Passwords are hashed with a modern adaptive algorithm; sessions use short-lived JWTs.
+- Login returns an access token and an opaque refresh token. Refresh tokens are stored as SHA-256 digests, rotated once per use, and revoked on logout. Reuse revokes all refresh sessions for that account.
+- Protected requests check a Redis access-token blacklist. Redis outages return `503`; blacklist keys expire with the JWT. Password resets increment a DB token version to invalidate every existing access token and revoke all refresh tokens.
+- Password recovery uses expiring, single-use tokens delivered over SMTP by Celery, with generic responses and Redis rate limits. Configure `PASSWORD_RESET_URL` and SMTP settings in both API and worker environments.
+- See [Authentication](backend/docs/authentication.md) for payloads, configuration, deployment and the eight implementation lessons.
 - Every retrieval query is joined on the owning user, so users cannot read each other's chunks.
 - Uploads are limited by size, content type and `%PDF-` signature; files are stored under generated names.
 - Document context is delimited as untrusted input in the prompt, and the model is instructed never to follow instructions found inside documents.

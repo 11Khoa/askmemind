@@ -5,7 +5,11 @@ import uuid
 from app.core.config import settings
 from app.core.logging import log_event
 from app.core.security import (
-    create_access_token, create_opaque_token, hash_token, hash_password, verify_password,
+    create_access_token,
+    create_opaque_token,
+    hash_token,
+    hash_password,
+    verify_password,
 )
 from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.models.user import User
@@ -13,6 +17,7 @@ from app.schemas.user import TokenResponse
 from app.repositories.user_repository import UserRepository
 
 logger = logging.getLogger(__name__)
+
 
 class AuthService:
     def __init__(
@@ -42,21 +47,27 @@ class AuthService:
         if user is None or not user.is_active:
             raise ValueError("Invalid email or password")
 
+        user = self.user_repository.get_user_for_update(user.id)
+        if user is None or not user.is_active:
+            raise ValueError("Invalid email or password")
         password_is_valid = verify_password(password, user.hashed_password)
 
         if password_is_valid is False:
             raise ValueError("Invalid email or password")
 
+        # Sign while holding the user lock; never reload a newer version after commit.
+        access_token = create_access_token(str(user.id), user.token_version)
         refresh_token = create_opaque_token()
         self.refresh_token_repository.create_refresh_token(
             user_id=user.id,
             token_hash=hash_token(refresh_token),
-            expires_at=datetime.now(timezone.utc) + timedelta(
+            expires_at=datetime.now(timezone.utc)
+            + timedelta(
                 days=settings.refresh_token_expire_days,
             ),
         )
         return TokenResponse(
-            access_token=create_access_token(subject=str(user.id)),
+            access_token=access_token,
             refresh_token=refresh_token,
         )
 
@@ -72,18 +83,23 @@ class AuthService:
         now = datetime.now(timezone.utc)
         if user is None or not user.is_active or token is None:
             raise ValueError("Invalid or expired refresh token")
+        if token.expires_at <= now:
+            raise ValueError("Invalid or expired refresh token")
         if token.revoked_at is not None:
             # Conservative replay response: revoke all of this user's refresh sessions.
             self.refresh_token_repository.revoke_all_for_user(user.id, now)
-            log_event(logger, logging.WARNING, "auth.refresh.replay_detected", user_id=str(user.id))
+            log_event(
+                logger,
+                logging.WARNING,
+                "auth.refresh.replay_detected",
+                user_id=str(user.id),
+            )
             raise ValueError("Invalid or expired refresh token")
-        if token.expires_at <= now:
-            raise ValueError("Invalid or expired refresh token")
-
         replacement = create_opaque_token()
+        access_token = create_access_token(str(user.id), user.token_version)
         self.refresh_token_repository.rotate(token, hash_token(replacement), now)
         return TokenResponse(
-            access_token=create_access_token(str(user.id)),
+            access_token=access_token,
             refresh_token=replacement,
         )
 
@@ -94,5 +110,6 @@ class AuthService:
             raise ValueError("Invalid refresh token")
         if token.revoked_at is None:
             self.refresh_token_repository.revoke_refresh_token(
-                token, datetime.now(timezone.utc),
+                token,
+                datetime.now(timezone.utc),
             )

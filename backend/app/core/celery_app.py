@@ -6,7 +6,7 @@ celery_app = Celery(
     'askmemind',
     broker=settings.resolved_celery_broker_url,
     backend=settings.resolved_celery_result_backend,
-    include=['app.tasks.document_processing'],
+    include=['app.tasks.document_processing', 'app.tasks.password_reset'],
 )
 
 celery_app.conf.update(

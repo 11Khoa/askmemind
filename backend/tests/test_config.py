@@ -1,7 +1,9 @@
 from app.core.config import Settings
 
 
-def test_default_embedding_settings_match_current_vector_schema() -> None:
+def test_default_embedding_settings_match_current_vector_schema(monkeypatch) -> None:
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name.upper(), raising=False)
     settings = Settings(
         _env_file=None,
         database_url="postgresql://test:test@localhost:5432/test",
@@ -25,6 +27,8 @@ def test_default_embedding_settings_match_current_vector_schema() -> None:
     assert settings.redis_url == 'redis://localhost:6379/0'
     assert settings.resolved_celery_broker_url == settings.redis_url
     assert settings.resolved_celery_result_backend == settings.redis_url
+    assert settings.refresh_token_expire_days == 30
+    assert settings.password_reset_expire_minutes == 15
 
 
 def test_celery_urls_can_override_redis_url() -> None:
