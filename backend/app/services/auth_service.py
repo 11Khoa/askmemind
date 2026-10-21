@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import logging
+import uuid
 
 from app.core.config import settings
 from app.core.logging import log_event
@@ -85,3 +86,13 @@ class AuthService:
             access_token=create_access_token(str(user.id)),
             refresh_token=replacement,
         )
+
+    def logout(self, user_id: uuid.UUID, raw_token: str) -> None:
+        self.user_repository.get_user_for_update(user_id)
+        token = self.refresh_token_repository.get_for_update(hash_token(raw_token))
+        if token is None or token.user_id != user_id:
+            raise ValueError("Invalid refresh token")
+        if token.revoked_at is None:
+            self.refresh_token_repository.revoke_refresh_token(
+                token, datetime.now(timezone.utc),
+            )

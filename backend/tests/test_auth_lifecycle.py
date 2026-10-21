@@ -63,3 +63,25 @@ def test_disabled_user_cannot_login_refresh_or_authenticate(auth_client, db_sess
     assert auth_client.post("/auth/login", json={"email": user.email, "password": "test-password-123"}).status_code == 401
     assert auth_client.post("/auth/refresh", json={"refresh_token": tokens["refresh_token"]}).status_code == 401
     assert auth_client.get("/auth/me", headers={"Authorization": f"Bearer {tokens['access_token']}"}).status_code == 401
+
+
+def test_logout_revokes_refresh_token(auth_client):
+    tokens = login(auth_client)
+    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+    body = {"refresh_token": tokens["refresh_token"]}
+    assert auth_client.post("/auth/logout", headers=headers, json=body).status_code == 204
+    assert auth_client.post("/auth/refresh", json=body).status_code == 401
+
+
+def test_logout_cannot_revoke_another_users_token(auth_client):
+    first = login(auth_client)
+    other = {"email": "other@example.com", "password": "test-password-123"}
+    assert auth_client.post("/auth/register", json=other).status_code == 201
+    second = auth_client.post("/auth/login", json=other).json()
+    response = auth_client.post(
+        "/auth/logout",
+        headers={"Authorization": f"Bearer {first['access_token']}"},
+        json={"refresh_token": second["refresh_token"]},
+    )
+    assert response.status_code == 401
+    assert auth_client.post("/auth/refresh", json={"refresh_token": second["refresh_token"]}).status_code == 200

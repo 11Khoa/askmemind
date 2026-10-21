@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.core.config import settings
 from app.core.dependencies import get_auth_service, get_current_user
@@ -70,3 +70,16 @@ def refresh_tokens(
         return auth_service.refresh(payload.refresh_token)
     except ValueError as error:
         raise HTTPException(status_code=401, detail=str(error)) from error
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(
+    payload: RefreshTokenRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    auth_service: Annotated[AuthService, Depends(get_auth_service)],
+):
+    try:
+        auth_service.logout(current_user.id, payload.refresh_token)
+    except ValueError as error:
+        raise HTTPException(status_code=401, detail=str(error)) from error
+    return Response(status_code=204)
