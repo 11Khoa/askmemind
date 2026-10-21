@@ -1,6 +1,7 @@
 import logging
 import uuid
 from pathlib import Path
+from functools import lru_cache
 
 import jwt
 from typing import Annotated
@@ -8,6 +9,7 @@ from typing import Annotated
 from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
+from redis import Redis
 
 from app.agents.retrieval_agent import (
     KeywordQueryRewriteTool,
@@ -21,6 +23,7 @@ from app.repositories.user_repository import UserRepository
 from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.repositories.chunk_repository import ChunkRepository
 from app.services.auth_service import AuthService
+from app.services.token_store import TokenStore
 from app.services.chat_service import ChatService
 from app.services.document_service import DocumentService
 from app.services.file_storage_service import FileStorageService
@@ -40,7 +43,7 @@ from app.services.context_builder_service import ContextBuilderService
 from app.services.rag_service import RagService
 from app.models.user import User
 from app.core.config import settings
-from app.core.security import decode_access_token
+from app.core.security import AccessTokenPayload, decode_access_token
 from app.core.logging import bind_user_id, log_event
 
 
@@ -72,13 +75,21 @@ def get_auth_service(
     )
 
 
-def get_current_user(
+@lru_cache
+def get_token_store() -> TokenStore:
+    return TokenStore(Redis.from_url(
+        settings.redis_url, socket_timeout=2, socket_connect_timeout=2,
+        decode_responses=True,
+    ))
+
+
+def get_current_access_payload(
     token: Annotated[str, Depends(oauth2_scheme)],
-    db: Annotated[Session, Depends(get_db)],
-) -> User:
+    token_store: Annotated[TokenStore, Depends(get_token_store)],
+) -> AccessTokenPayload:
     try:
         token_payload = decode_access_token(token)
-        user_id = uuid.UUID(token_payload.subject)
+        uuid.UUID(token_payload.subject)
     except (ValueError, jwt.PyJWTError) as error:
         raise HTTPException(
             status_code=401,
@@ -86,6 +97,16 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         ) from error
 
+    if token_store.is_revoked(token_payload.jti):
+        raise HTTPException(status_code=401, detail="Token has been revoked", headers={"WWW-Authenticate": "Bearer"})
+    return token_payload
+
+
+def get_current_user(
+    token_payload: Annotated[AccessTokenPayload, Depends(get_current_access_payload)],
+    db: Annotated[Session, Depends(get_db)],
+) -> User:
+    user_id = uuid.UUID(token_payload.subject)
     user_repository = UserRepository(db=db)
     user = user_repository.get_user_by_id(user_id)
 

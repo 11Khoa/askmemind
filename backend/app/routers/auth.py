@@ -3,7 +3,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.core.config import settings
-from app.core.dependencies import get_auth_service, get_current_user
+from app.core.dependencies import (
+    get_auth_service, get_current_user, get_current_access_payload, get_token_store,
+)
+from app.core.security import AccessTokenPayload
+from app.services.token_store import TokenStore
 from app.schemas.user import UserCreate, UserRead, UserLogin, TokenResponse, RefreshTokenRequest
 from app.services.auth_service import AuthService
 from app.models.user import User
@@ -77,9 +81,12 @@ def logout(
     payload: RefreshTokenRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
+    access_payload: Annotated[AccessTokenPayload, Depends(get_current_access_payload)],
+    token_store: Annotated[TokenStore, Depends(get_token_store)],
 ):
     try:
         auth_service.logout(current_user.id, payload.refresh_token)
     except ValueError as error:
         raise HTTPException(status_code=401, detail=str(error)) from error
+    token_store.revoke_access(access_payload)
     return Response(status_code=204)

@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from time import perf_counter
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 
@@ -18,6 +19,7 @@ from app.core.logging import (
 from app.database import SessionLocal
 from app.repositories.document_repository import DocumentRepository
 from app.routers import auth, chat, document, health, upload
+from app.services.token_store import TokenStoreUnavailable
 
 configure_logging(level=settings.log_level)
 logger = logging.getLogger(__name__)
@@ -52,6 +54,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+@app.exception_handler(TokenStoreUnavailable)
+async def token_store_unavailable_handler(request: Request, error: TokenStoreUnavailable):
+    log_event(logger, logging.ERROR, "auth.token_store.unavailable")
+    return JSONResponse(status_code=503, content={"detail": "Authentication temporarily unavailable"})
 
 
 @app.middleware("http")

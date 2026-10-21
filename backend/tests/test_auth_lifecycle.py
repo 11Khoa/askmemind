@@ -1,9 +1,11 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from unittest.mock import Mock
 from fastapi.testclient import TestClient
 
-from app.core.dependencies import get_db
+from app.core.dependencies import get_db, get_token_store
+from app.services.token_store import TokenStore, TokenStoreUnavailable
 from app.core.security import hash_token
 from app.main import app
 from app.models.refresh_token import RefreshToken
@@ -13,6 +15,11 @@ from app.models.user import User
 @pytest.fixture
 def auth_client(db_session):
     app.dependency_overrides[get_db] = lambda: db_session
+    revoked = set()
+    store = Mock(spec=TokenStore)
+    store.is_revoked.side_effect = lambda jti: jti in revoked
+    store.revoke_access.side_effect = lambda payload: revoked.add(payload.jti)
+    app.dependency_overrides[get_token_store] = lambda: store
     try:
         yield TestClient(app)
     finally:
@@ -70,6 +77,7 @@ def test_logout_revokes_refresh_token(auth_client):
     headers = {"Authorization": f"Bearer {tokens['access_token']}"}
     body = {"refresh_token": tokens["refresh_token"]}
     assert auth_client.post("/auth/logout", headers=headers, json=body).status_code == 204
+    assert auth_client.get("/auth/me", headers=headers).status_code == 401
     assert auth_client.post("/auth/refresh", json=body).status_code == 401
 
 
@@ -85,3 +93,13 @@ def test_logout_cannot_revoke_another_users_token(auth_client):
     )
     assert response.status_code == 401
     assert auth_client.post("/auth/refresh", json={"refresh_token": second["refresh_token"]}).status_code == 200
+
+
+def test_authentication_fails_closed_when_redis_is_unavailable(auth_client):
+    tokens = login(auth_client)
+    store = Mock(spec=TokenStore)
+    store.is_revoked.side_effect = TokenStoreUnavailable()
+    app.dependency_overrides[get_token_store] = lambda: store
+    response = auth_client.get("/auth/me", headers={"Authorization": f"Bearer {tokens['access_token']}"})
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Authentication temporarily unavailable"
