@@ -20,7 +20,7 @@ import { Sidebar } from './components/Sidebar'
 import { NewChatModal } from "./components/NewChatModal";
 import type { Notice } from './types'
 
-type WorkspaceProps = { token: string; onLogout: () => void }
+type WorkspaceProps = { onLogout: () => void }
 
 const READY_STATUSES = new Set(['ready', 'completed'])
 const FAILED_STATUSES = new Set(['processing_failed', 'failed'])
@@ -38,7 +38,7 @@ function applyDocumentEvent(document: Document, event: DocumentStatusEvent): Doc
   }
 }
 
-export function Workspace({ token, onLogout }: WorkspaceProps) {
+export function Workspace({ onLogout }: WorkspaceProps) {
   const { t } = useTranslation()
   const [user, setUser] = useState<User | null>(null)
   const [documents, setDocuments] = useState<Document[]>([])
@@ -62,14 +62,13 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
 
   const handleError = useCallback((caught: unknown) => {
     if (caught instanceof ApiError && caught.status === 401) {
-      onLogout()
       return
     }
     setNotice({
       kind: 'error',
       message: caught instanceof Error ? caught.message : t('common.genericError'),
     })
-  }, [onLogout, t])
+  }, [t])
 
   useEffect(() => {
     documentsRef.current = documents
@@ -79,7 +78,7 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
     async function loadWorkspace() {
       try {
         const [currentUser, currentDocuments, currentChats] = await Promise.all([
-          api.me(token), api.listDocuments(token), api.listChats(token),
+          api.me(), api.listDocuments(), api.listChats(),
         ])
         setUser(currentUser)
         setDocuments(currentDocuments)
@@ -98,10 +97,9 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
       }
     }
     void loadWorkspace()
-  }, [handleError, token])
+  }, [handleError])
 
   useEffect(() => api.subscribeDocumentEvents(
-    token,
     (event) => {
       const currentDocument = documentsRef.current.find(
         (document) => document.id === event.document_id,
@@ -132,17 +130,17 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
       }
     },
     handleError,
-  ), [handleError, t, token])
+  ), [handleError, t])
 
   useEffect(() => {
     if (!selectedChatId) return
     let active = true
-    api.listMessages(token, selectedChatId)
+    api.listMessages(selectedChatId)
       .then((result) => { if (active) setMessages(result) })
       .catch((caught) => { if (active) handleError(caught) })
       .finally(() => { if (active) setLoadingMessages(false) })
     return () => { active = false }
-  }, [handleError, selectedChatId, token])
+  }, [handleError, selectedChatId])
 
   useEffect(() => () => abortRef.current?.abort(), [])
 
@@ -164,7 +162,7 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
 
   async function createChat(title: string | null = null) {
     try {
-      const chat = await api.createChat(token, title)
+      const chat = await api.createChat(title)
       setChats((current) => [chat, ...current])
       setSelectedChatId(chat.id)
       setMessages([])
@@ -223,7 +221,6 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
 
     try {
       await api.streamQuestion(
-        token,
         chatId,
         content,
         selectedDocumentId,
@@ -280,7 +277,7 @@ export function Workspace({ token, onLogout }: WorkspaceProps) {
     setUploading(true)
     setNotice(null)
     try {
-      const document = await api.uploadDocument(token, file)
+      const document = await api.uploadDocument(file)
       setDocuments((current) => {
         const nextDocuments = [
           document,

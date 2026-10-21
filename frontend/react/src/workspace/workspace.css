@@ -295,6 +295,30 @@ select:focus-visible {
 
 .auth-submit { width: 100%; margin-top: 2px; }
 
+.auth-link {
+  display: block;
+  margin: 18px auto 0;
+  padding: 4px;
+  border: 0;
+  color: var(--teal);
+  background: transparent;
+  font-size: 13px;
+  text-decoration: underline;
+}
+
+.form-success {
+  padding: 12px;
+  border-left: 3px solid var(--teal);
+  background: var(--teal-soft);
+  color: var(--teal-dark);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.form-error, .form-success { overflow-wrap: anywhere; }
+
+.auth-form-wrap > .form-error { margin-bottom: 18px; }
+
 .auth-footnote {
   margin-top: 22px;
   color: var(--faint);
