@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.config import settings
 from app.core.dependencies import get_auth_service, get_current_user
-from app.schemas.user import UserCreate, UserRead, UserLogin, TokenResponse
+from app.schemas.user import UserCreate, UserRead, UserLogin, TokenResponse, RefreshTokenRequest
 from app.services.auth_service import AuthService
 from app.models.user import User
 
@@ -59,3 +59,14 @@ def get_me(
     current_user: Annotated[User, Depends(get_current_user)],
 ):
     return current_user
+
+
+@router.post("/refresh", response_model=TokenResponse)
+def refresh_tokens(
+    payload: RefreshTokenRequest,
+    auth_service: Annotated[AuthService, Depends(get_auth_service)],
+):
+    try:
+        return auth_service.refresh(payload.refresh_token)
+    except ValueError as error:
+        raise HTTPException(status_code=401, detail=str(error)) from error

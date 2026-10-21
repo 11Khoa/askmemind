@@ -19,6 +19,12 @@ class UserRepository:
     def get_user_by_id(self, user_id: uuid.UUID) -> User | None:
         return self.db.get(User, user_id)
 
+    def get_user_for_update(self, user_id: uuid.UUID) -> User | None:
+        return (
+            self.db.query(User).filter(User.id == user_id)
+            .populate_existing().with_for_update().first()
+        )
+
     def create_user(self, email: str, hashed_password: str) -> User:
         user = User(
             email=email,

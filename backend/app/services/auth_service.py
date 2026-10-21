@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
+import logging
 
 from app.core.config import settings
+from app.core.logging import log_event
 from app.core.security import (
     create_access_token, create_opaque_token, hash_token, hash_password, verify_password,
 )
@@ -9,6 +11,7 @@ from app.models.user import User
 from app.schemas.user import TokenResponse
 from app.repositories.user_repository import UserRepository
 
+logger = logging.getLogger(__name__)
 
 class AuthService:
     def __init__(
@@ -54,4 +57,31 @@ class AuthService:
         return TokenResponse(
             access_token=create_access_token(subject=str(user.id)),
             refresh_token=refresh_token,
+        )
+
+    def refresh(self, raw_token: str) -> TokenResponse:
+        digest = hash_token(raw_token)
+        token = self.refresh_token_repository.get_by_token_hash(digest)
+        if token is None:
+            raise ValueError("Invalid or expired refresh token")
+
+        # Lock the user first: rotation, logout and password reset share this order.
+        user = self.user_repository.get_user_for_update(token.user_id)
+        token = self.refresh_token_repository.get_for_update(digest)
+        now = datetime.now(timezone.utc)
+        if user is None or not user.is_active or token is None:
+            raise ValueError("Invalid or expired refresh token")
+        if token.revoked_at is not None:
+            # Conservative replay response: revoke all of this user's refresh sessions.
+            self.refresh_token_repository.revoke_all_for_user(user.id, now)
+            log_event(logger, logging.WARNING, "auth.refresh.replay_detected", user_id=str(user.id))
+            raise ValueError("Invalid or expired refresh token")
+        if token.expires_at <= now:
+            raise ValueError("Invalid or expired refresh token")
+
+        replacement = create_opaque_token()
+        self.refresh_token_repository.rotate(token, hash_token(replacement), now)
+        return TokenResponse(
+            access_token=create_access_token(str(user.id)),
+            refresh_token=replacement,
         )
