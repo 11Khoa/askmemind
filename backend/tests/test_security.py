@@ -121,3 +121,25 @@ def test_decode_access_token_requires_jti() -> None:
 
     with pytest.raises(ValueError, match="Token jti must be a string"):
         decode_access_token(token)
+
+
+@pytest.mark.parametrize(
+    "claim,value",
+    [("sub", ""), ("jti", ""), ("iat", None), ("iat", "123"),
+     ("iat", True), ("exp", True), ("exp", 9999999999.5)],
+)
+def test_decode_rejects_invalid_claim_types(claim, value):
+    payload = {"sub": str(uuid.uuid4()), "jti": str(uuid.uuid4()),
+               "iat": 1, "exp": 9999999999}
+    payload[claim] = value
+    token = jwt.encode(payload, settings.secret_key, algorithm=settings.jwt_algorithm)
+    with pytest.raises((ValueError, jwt.PyJWTError)):
+        decode_access_token(token)
+
+
+def test_access_tokens_have_distinct_jtis():
+    subject = str(uuid.uuid4())
+    first = decode_access_token(create_access_token(subject))
+    second = decode_access_token(create_access_token(subject))
+    assert first.jti != second.jti
+    assert first.issued_at < first.expires_at
