@@ -104,6 +104,14 @@ export const api = {
     return request<Document[]>('/documents', {}, true)
   },
 
+  getDocument(documentId: string) {
+    return request<Document>(`/documents/${documentId}`, {}, true)
+  },
+
+  retryDocument(documentId: string) {
+    return request<Document>(`/documents/${documentId}/retry`, { method: 'POST' }, true)
+  },
+
   uploadDocument(file: File) {
     const body = new FormData()
     body.append('file', file)

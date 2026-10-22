@@ -2,6 +2,20 @@
 
 React client for the AskMeMind document question-answering API.
 
+## Document retry
+
+Failed documents show a Retry action on their own row. It sends a bearer-authenticated
+`POST /documents/{id}/retry` without a body, expects `202` with DocumentRead and
+updates the existing row instead of uploading a duplicate. A failed request keeps
+the error visible and reconciles the document with `GET /documents/{id}`.
+
+`GET /documents/events` pushes processing results; events carry `document_id`,
+`status`, `page_count`, `error_message`, `processing_attempt_id` and `updated_at`.
+The client discards stale events and also polls every 2 seconds while processing
+because Redis Pub/Sub cannot replay messages missed during disconnects. Retry
+and upload controls are independent, and repeated clicks are blocked per document.
+The matching backend migration must be applied before starting the new API/worker.
+
 ## Requirements
 
 - Node.js 24 LTS (used for builds and tests)

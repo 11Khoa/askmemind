@@ -1,5 +1,5 @@
 import {
-  ChevronRight, FileText, Library, LoaderCircle, Search, Upload, X,
+  ChevronRight, FileText, Library, LoaderCircle, RotateCw, Search, Upload, X,
 } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
@@ -13,9 +13,11 @@ type DocumentsPanelProps = {
   selectedDocumentId: string | null
   open: boolean
   uploading: boolean
+  retryingIds: ReadonlySet<string>
   onClose: () => void
   onSelectDocument: (documentId: string | null) => void
   onUpload: (file: File) => void
+  onRetry: (documentId: string) => void
 }
 
 function formatBytes(bytes: number) {
@@ -30,9 +32,11 @@ export function DocumentsPanel({
   selectedDocumentId,
   open,
   uploading,
+  retryingIds,
   onClose,
   onSelectDocument,
   onUpload,
+  onRetry,
 }: DocumentsPanelProps) {
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
@@ -91,25 +95,38 @@ export function DocumentsPanel({
 
         {filteredDocuments.map((document) => {
           const isReady = ['ready', 'completed'].includes(document.status)
+          const failed = ['processing_failed', 'failed'].includes(document.status)
+          const retrying = retryingIds.has(document.id)
           return (
-            <button key={document.id}
-              disabled={!isReady}
-              title={isReady ? undefined : t('documents.notReadyTitle')}
-              className={`document-item ${selectedDocumentId === document.id ? 'is-active' : ''}`}
-              onClick={() => onSelectDocument(document.id)}>
-              <span className="file-icon"><FileText size={18} /></span>
-              <span className="document-copy">
-                <strong>{document.original_filename}</strong>
-                <small>
-                  {document.page_count ? `${t('documents.pages', { count: document.page_count })} - ` : ''}
-                  {formatBytes(document.file_size_bytes)}
-                </small>
-                <span className={`status status--${document.status}`}>
-                  {t(`documents.status.${document.status}`, document.status)}
+            <div key={document.id} className="document-row">
+              <button
+                disabled={!isReady}
+                title={isReady ? undefined : t('documents.notReadyTitle')}
+                className={`document-item ${selectedDocumentId === document.id ? 'is-active' : ''}`}
+                onClick={() => onSelectDocument(document.id)}>
+                <span className="file-icon"><FileText size={18} /></span>
+                <span className="document-copy">
+                  <strong>{document.original_filename}</strong>
+                  <small>
+                    {document.page_count ? `${t('documents.pages', { count: document.page_count })} - ` : ''}
+                    {formatBytes(document.file_size_bytes)}
+                  </small>
+                  <span className={`status status--${document.status}`}>
+                    {t(`documents.status.${document.status}`, document.status)}
+                  </span>
                 </span>
-              </span>
-              <ChevronRight size={16} />
-            </button>
+                <ChevronRight size={16} />
+              </button>
+              {failed && (
+                <button className="document-retry" disabled={retrying}
+                  title={t('documents.retryTitle', { filename: document.original_filename })}
+                  aria-label={t('documents.retryTitle', { filename: document.original_filename })}
+                  onClick={() => onRetry(document.id)}>
+                  {retrying ? <LoaderCircle size={14} className="spin" /> : <RotateCw size={14} />}
+                  {retrying ? t('documents.retrying') : t('documents.retry')}
+                </button>
+              )}
+            </div>
           )
         })}
 

@@ -124,6 +124,9 @@ export const en = {
     readyToSearch: '{{filename}} is ready to search.',
     processingStarted: '{{filename}} is processing. You can keep working while it finishes.',
     failedToProcess: '{{filename}} could not be processed.',
+    retry: 'Retry',
+    retryTitle: 'Retry processing {{filename}}',
+    retrying: 'Retrying...',
     status: {
       uploaded: 'Uploaded',
       processing: 'Processing',

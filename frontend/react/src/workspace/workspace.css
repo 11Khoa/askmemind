@@ -1044,6 +1044,25 @@ select:focus-visible {
 
 .document-item:hover { background: var(--soft); }
 
+.document-row { min-width: 0; }
+.document-row:has(.document-retry) .document-item { padding-bottom: 4px; }
+.document-retry {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 82px;
+  height: 30px;
+  margin: 0 8px 8px 52px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--paper, #fff);
+  color: var(--teal-dark);
+  font-size: 12px;
+}
+.document-retry:hover:not(:disabled) { background: var(--teal-soft); }
+
 .document-item.is-active {
   border-color: #c7ddd7;
   background: #eff7f4;
