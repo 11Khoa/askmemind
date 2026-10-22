@@ -15,10 +15,12 @@ class DocumentEventBroker:
         self.redis_url = redis_url
 
     def _channel(self, user_id: uuid.UUID | str) -> str:
-        return f'document-events:{user_id}'
+        return f"document-events:{user_id}"
 
     def publish(self, user_id: uuid.UUID | str, payload: dict[str, Any]) -> None:
-        client = redis.Redis.from_url(self.redis_url)
+        client = redis.Redis.from_url(
+            self.redis_url, socket_timeout=2, socket_connect_timeout=2
+        )
         try:
             client.publish(
                 self._channel(user_id),
@@ -37,21 +39,21 @@ class DocumentEventBroker:
         await pubsub.subscribe(self._channel(user_id))
 
         try:
-            yield ': connected\n\n'
+            yield ": connected\n\n"
             while not await request.is_disconnected():
                 message = await pubsub.get_message(
                     ignore_subscribe_messages=True,
                     timeout=15,
                 )
                 if message is None:
-                    yield ': keep-alive\n\n'
+                    yield ": keep-alive\n\n"
                     continue
 
-                data = message.get('data')
+                data = message.get("data")
                 if isinstance(data, bytes):
-                    data = data.decode('utf-8')
+                    data = data.decode("utf-8")
 
-                yield f'event: document_status\ndata: {data}\n\n'
+                yield f"event: document_status\ndata: {data}\n\n"
         finally:
             await pubsub.unsubscribe(self._channel(user_id))
             await pubsub.close()

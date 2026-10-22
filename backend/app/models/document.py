@@ -30,9 +30,7 @@ class Document(Base):
         index=True,
     )
 
-    user: Mapped["User"] = relationship(
-        back_populates="documents"
-    )
+    user: Mapped["User"] = relationship(back_populates="documents")
 
     chunks: Mapped[list["Chunk"]] = relationship(
         back_populates="document",
@@ -76,6 +74,13 @@ class Document(Base):
         Integer,
         nullable=True,
     )
+
+    processing_attempt_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=True,
+    )
+    # Set together with the complete chunk set, before any embedding requests.
+    chunk_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     source_type: Mapped[str] = mapped_column(
         String(50),

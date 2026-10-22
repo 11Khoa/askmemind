@@ -61,7 +61,9 @@ def test_embedding_service_builds_nvidia_embedding_service(monkeypatch) -> None:
     assert service.provider.batch_size == 16
 
 
-def test_get_embedding_service_raises_when_nvidia_api_key_is_missing(monkeypatch) -> None:
+def test_get_embedding_service_raises_when_nvidia_api_key_is_missing(
+    monkeypatch,
+) -> None:
     fake_settings = SimpleNamespace(
         embedding_provider="nvidia",
         nvidia_api_key="",
@@ -216,7 +218,9 @@ def test_get_rag_service_builds_rag_service(monkeypatch) -> None:
     )
 
 
-def test_process_document_in_background_marks_failed_and_closes_session(monkeypatch) -> None:
+def test_process_document_in_background_marks_failed_and_closes_session(
+    monkeypatch,
+) -> None:
     from app.core.types import DocumentStatus
     from app.models.document import Document
 
@@ -225,13 +229,13 @@ def test_process_document_in_background_marks_failed_and_closes_session(monkeypa
     document = Document(
         id=document_id,
         user_id=user_id,
-        filename='failing.pdf',
-        original_filename='failing.pdf',
-        file_path='/tmp/failing.pdf',
-        content_type='application/pdf',
+        filename="failing.pdf",
+        original_filename="failing.pdf",
+        file_path="/tmp/failing.pdf",
+        content_type="application/pdf",
         file_size_bytes=123,
         status=DocumentStatus.PROCESSING.value,
-        source_type='pdf',
+        source_type="pdf",
     )
 
     class FakeSession:
@@ -256,6 +260,15 @@ def test_process_document_in_background_marks_failed_and_closes_session(monkeypa
         def get_document_by_id(self, document_id):
             return document
 
+        def processing_lock(self, document_id):
+            from contextlib import nullcontext
+
+            return nullcontext(True)
+
+        def fail_attempt(self, document_id, attempt_id, reason):
+            self.mark_processing_failed(document, reason)
+            self.db.commit()
+
         def mark_processing_failed(self, document, error_message):
             document.status = DocumentStatus.PROCESSING_FAILED.value
             document.error_message = error_message
@@ -263,32 +276,32 @@ def test_process_document_in_background_marks_failed_and_closes_session(monkeypa
 
     class FailingProcessingService:
         def process_document(self, document_id, file_path):
-            raise RuntimeError('boom')
+            raise RuntimeError("boom")
 
     published_events = []
     fake_session = FakeSession()
-    monkeypatch.setattr(dependencies, 'SessionLocal', lambda: fake_session)
-    monkeypatch.setattr(dependencies, 'DocumentRepository', FakeRepository)
+    monkeypatch.setattr(dependencies, "SessionLocal", lambda: fake_session)
+    monkeypatch.setattr(dependencies, "DocumentRepository", FakeRepository)
     monkeypatch.setattr(
         dependencies,
-        'build_document_processing_service',
+        "build_document_processing_service",
         lambda db: FailingProcessingService(),
     )
     monkeypatch.setattr(
         dependencies.document_event_broker,
-        'publish',
+        "publish",
         lambda user_id, payload: published_events.append((user_id, payload)),
     )
 
     dependencies.process_document_in_background(
         document_id=document_id,
-        file_path=Path('/tmp/failing.pdf'),
-        request_id='request-1',
+        file_path=Path("/tmp/failing.pdf"),
+        request_id="request-1",
         user_id=user_id,
     )
 
     assert document.status == DocumentStatus.PROCESSING_FAILED.value
-    assert document.error_message == 'boom'
+    assert document.error_message == "boom"
     assert fake_session.rollbacks == 1
     assert fake_session.commits == 1
     assert fake_session.closed is True
@@ -296,10 +309,12 @@ def test_process_document_in_background_marks_failed_and_closes_session(monkeypa
         (
             user_id,
             {
-                'document_id': str(document_id),
-                'status': DocumentStatus.PROCESSING_FAILED.value,
-                'page_count': None,
-                'error_message': 'boom',
+                "document_id": str(document_id),
+                "status": DocumentStatus.PROCESSING_FAILED.value,
+                "page_count": None,
+                "error_message": "boom",
+                "processing_attempt_id": None,
+                "updated_at": None,
             },
         )
     ]

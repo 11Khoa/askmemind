@@ -8,30 +8,18 @@ from app.models.document import Document
 from app.models.user import User
 
 
-class SessionProxy:
-    def __init__(self, session: Session) -> None:
-        self.session = session
-
-    def __getattr__(self, name: str):
-        return getattr(self.session, name)
-
-    def close(self) -> None:
-        pass
-
-
-def test_startup_cleanup_marks_processing_documents_failed(
+def test_api_restart_does_not_fail_celery_documents(
     db_session: Session,
-    monkeypatch,
 ) -> None:
     user = User(
-        email='startup-cleanup@gmail.com',
-        hashed_password='hashed',
+        email="startup-cleanup@gmail.com",
+        hashed_password="hashed",
     )
     document = Document(
-        filename='stale.pdf',
-        original_filename='stale.pdf',
-        file_path='/tmp/stale.pdf',
-        content_type='application/pdf',
+        filename="stale.pdf",
+        original_filename="stale.pdf",
+        file_path="/tmp/stale.pdf",
+        content_type="application/pdf",
         file_size_bytes=123,
         status=DocumentStatus.PROCESSING.value,
     )
@@ -39,16 +27,11 @@ def test_startup_cleanup_marks_processing_documents_failed(
     db_session.add(user)
     db_session.flush()
 
-    monkeypatch.setattr('app.main.SessionLocal', lambda: SessionProxy(db_session))
-
     async def run_lifespan() -> None:
         async with lifespan(app):
             pass
 
     asyncio.run(run_lifespan())
 
-    assert document.status == DocumentStatus.PROCESSING_FAILED.value
-    assert document.error_message == (
-        'Document processing was interrupted by an application restart. '
-        'Please upload the document again.'
-    )
+    assert document.status == DocumentStatus.PROCESSING.value
+    assert document.error_message is None

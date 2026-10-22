@@ -262,6 +262,7 @@ Enable the reranker and retry loop only after running the evaluation on your own
 | | `POST /auth/token/login`, `/auth/token/refresh`, `/auth/token/logout` | Optional JSON token flow for CLI/native clients; disabled by default |
 | | `POST /auth/forgot-password`, `POST /auth/reset-password` | Email-based password recovery |
 | Documents | `POST /documents/upload` | Validate and enqueue a PDF (returns `202`) |
+| | `POST /documents/{id}/retry` | Retry a failed document in place (returns `202`, same DocumentRead) |
 | | `GET /documents`, `GET /documents/{id}` | List and inspect documents |
 | | `GET /documents/events` | SSE stream of document status changes |
 | Chats | `GET /chats`, `POST /chats` | Conversations |
@@ -322,7 +323,11 @@ Checklist:
 - Every response carries an `X-Request-ID`; JSON logs include the request ID and user ID across retrieval, reranking, generation and fallback events.
 - Stage logs record latency, retrieval method, candidate counts, confidence, fallback reason, citation errors and provider token usage. Raw questions and document text are intentionally excluded from agent decision logs.
 - `/health/live` and `/health/ready` back the Docker health checks; readiness returns `503` when PostgreSQL is unavailable.
-- Documents left in `processing` after a restart are marked `processing_failed`.
+- Failed documents can be retried in place from React. `POST /documents/{id}/retry` uses bearer authentication, requires no body and returns `202` with the same document ID, `status: processing`, a new `processing_attempt_id` and a cleared error. Other owners receive `403`, unknown IDs `404`, non-failed documents or an unavailable required PDF `409`, and broker failures `503` (the document remains retryable).
+- A complete chunk checkpoint is committed before embedding; each successful `EMBEDDING_BATCH_SIZE` batch is committed independently. Retry preserves matching chunk IDs and valid v2 vectors, embedding only missing/outdated vectors. Legacy chunks without a completion checkpoint are reconciled against the original PDF first. Missing original files require re-upload when extraction is still needed.
+- An atomic status transition rejects double retries. Worker advisory locks prevent concurrent processing of a document, and attempt IDs discard stale queued jobs. Only ready documents participate in retrieval.
+- API restarts do not fail independent Celery jobs. Late acknowledgements and worker-loss rejection allow redelivery; Redis persistence and a shared upload volume are required. This is not an exactly-once queue or a substitute for durable object storage. Gracefully stop old workers before deploying the migration and new worker code together.
+- SSE status payloads include `processing_attempt_id` and `updated_at`; React ignores stale updates and polls every 2 seconds while processing to recover missed Pub/Sub messages. Notification failures do not change a successful document to failed.
 
 ---
 

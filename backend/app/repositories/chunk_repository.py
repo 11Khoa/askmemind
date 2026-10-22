@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.models.chunk import Chunk
 from app.models.document import Document
+from app.core.types import DocumentStatus
 
 
 class ChunkRepository:
@@ -29,9 +30,7 @@ class ChunkRepository:
                 embedding_v2=chunk_data.get("embedding_v2"),
                 embedding_v2_provider=chunk_data.get("embedding_v2_provider"),
                 embedding_v2_model=chunk_data.get("embedding_v2_model"),
-                embedding_v2_dimensions=chunk_data.get(
-                    "embedding_v2_dimensions"
-                ),
+                embedding_v2_dimensions=chunk_data.get("embedding_v2_dimensions"),
                 end_time_seconds=chunk_data.get("end_time_seconds"),
                 embedding=chunk_data.get("embedding"),
                 embedding_provider=chunk_data.get("embedding_provider"),
@@ -60,14 +59,16 @@ class ChunkRepository:
 
     def delete_chunks_by_document(self, document_id: uuid.UUID) -> int:
         delete_count = (
-            self.db.query(Chunk)
-            .filter(Chunk.document_id == document_id)
-            .delete()
+            self.db.query(Chunk).filter(Chunk.document_id == document_id).delete()
         )
 
         self.db.flush()
 
         return delete_count
+
+    def delete_chunks(self, chunks: Sequence[Chunk]) -> None:
+        for chunk in chunks:
+            self.db.delete(chunk)
 
     def search_similar_chunks(
         self,
@@ -85,6 +86,7 @@ class ChunkRepository:
             .join(Document, Chunk.document_id == Document.id)
             .where(
                 Document.user_id == user_id,
+                Document.status == DocumentStatus.READY.value,
                 embedding_column.is_not(None),
             )
         )
@@ -96,10 +98,7 @@ class ChunkRepository:
 
         rows = self.db.execute(statement).all()
 
-        return [
-            (chunk, distance)
-            for chunk, distance in rows
-        ]
+        return [(chunk, distance) for chunk, distance in rows]
 
     def search_keyword_chunks(
         self,
@@ -123,6 +122,7 @@ class ChunkRepository:
             .join(Document, Chunk.document_id == Document.id)
             .where(
                 Document.user_id == user_id,
+                Document.status == DocumentStatus.READY.value,
                 text_vector.op("@@")(text_query),
             )
         )
@@ -134,7 +134,4 @@ class ChunkRepository:
 
         rows = self.db.execute(statement).all()
 
-        return [
-            (chunk, rank)
-            for chunk, rank in rows
-        ]
+        return [(chunk, rank) for chunk, rank in rows]

@@ -250,6 +250,7 @@ def test_search_similar_chunks_returns_chunks_ordered_by_cosine_distance(
         filename="vector-search-test.pdf",
         original_filename="vector-search-test.pdf",
         file_path="/tmp/vector-search-test.pdf",
+        status="ready",
         content_type="application/pdf",
         file_size_bytes=500,
     )
@@ -312,6 +313,7 @@ def test_search_similar_chunks_filters_by_document_id(
         filename="first-vector-search.pdf",
         original_filename="first-vector-search.pdf",
         file_path="/tmp/first-vector-search.pdf",
+        status="ready",
         content_type="application/pdf",
         file_size_bytes=500,
     )
@@ -320,6 +322,7 @@ def test_search_similar_chunks_filters_by_document_id(
         filename="second-vector-search.pdf",
         original_filename="second-vector-search.pdf",
         file_path="/tmp/second-vector-search.pdf",
+        status="ready",
         content_type="application/pdf",
         file_size_bytes=500,
     )
@@ -386,6 +389,7 @@ def test_search_similar_chunks_searches_all_documents_for_one_user(
         filename="first-user-vector-search.pdf",
         original_filename="first-user-vector-search.pdf",
         file_path="/tmp/first-user-vector-search.pdf",
+        status="ready",
         content_type="application/pdf",
         file_size_bytes=500,
     )
@@ -393,6 +397,7 @@ def test_search_similar_chunks_searches_all_documents_for_one_user(
         filename="first-user-second-vector-search.pdf",
         original_filename="first-user-second-vector-search.pdf",
         file_path="/tmp/first-user-second-vector-search.pdf",
+        status="ready",
         content_type="application/pdf",
         file_size_bytes=500,
     )
@@ -400,6 +405,7 @@ def test_search_similar_chunks_searches_all_documents_for_one_user(
         filename="second-user-vector-search.pdf",
         original_filename="second-user-vector-search.pdf",
         file_path="/tmp/second-user-vector-search.pdf",
+        status="ready",
         content_type="application/pdf",
         file_size_bytes=500,
     )
@@ -484,6 +490,7 @@ def test_search_similar_chunks_can_use_embedding_v2(
         filename="vector-v2.pdf",
         original_filename="vector-v2.pdf",
         file_path="/tmp/vector-v2.pdf",
+        status="ready",
         content_type="application/pdf",
         file_size_bytes=500,
     )

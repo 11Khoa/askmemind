@@ -1,5 +1,4 @@
 import uuid
-from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, status, UploadFile
@@ -15,9 +14,9 @@ from app.core.logging import get_request_id
 from app.schemas.document import DocumentRead
 from app.tasks.document_processing import process_document_task
 from app.services.document_service import DocumentService
+from app.services.document_jobs import enqueue_document, DocumentQueueUnavailable
 from app.services.file_storage_service import FileStorageService
 from app.models.user import User
-
 
 router = APIRouter(
     prefix="/documents",
@@ -106,11 +105,9 @@ def upload_document(
             detail="Could not save uploaded document",
         ) from error
 
-    process_document_task.delay(
-        str(document.id),
-        str(Path(file_path)),
-        get_request_id(),
-        str(current_user.id),
-    )
+    try:
+        enqueue_document(document, document_service, get_request_id())
+    except DocumentQueueUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
 
     return document

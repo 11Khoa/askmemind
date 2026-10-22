@@ -49,7 +49,6 @@ from app.core.config import settings
 from app.core.security import AccessTokenPayload, decode_access_token
 from app.core.logging import bind_user_id, log_event
 
-
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 logger = logging.getLogger(__name__)
 
@@ -178,6 +177,7 @@ def build_document_processing_service(db: Session) -> DocumentProcessingService:
         chunk_persistence_service=chunk_persistence_service,
         embedding_service=embedding_service,
         unit_of_work=db,
+        embedding_batch_size=settings.embedding_batch_size,
     )
 
 
@@ -192,55 +192,71 @@ def process_document_in_background(
     file_path: Path,
     request_id: str | None,
     user_id: uuid.UUID,
+    processing_attempt_id: uuid.UUID | None = None,
 ) -> None:
     db = SessionLocal()
     repository = DocumentRepository(db=db)
 
     try:
-        service = build_document_processing_service(db=db)
-        service.process_document(
-            document_id=document_id,
-            file_path=file_path,
-        )
-        document = repository.get_document_by_id(document_id=document_id)
-        if document is not None:
-            document_event_broker.publish(
-                user_id,
-                {
-                    "document_id": str(document.id),
-                    "status": document.status,
-                    "page_count": document.page_count,
-                    "error_message": document.error_message,
-                },
-            )
-    except Exception as error:
-        db.rollback()
-        document = repository.get_document_by_id(document_id=document_id)
-        if document is not None:
-            repository.mark_processing_failed(
-                document=document,
-                error_message=str(error),
-            )
-            db.commit()
-
-        log_event(
-            logger,
-            logging.ERROR,
-            "document.processing.background_failed",
-            request_id=request_id,
-            user_id=str(user_id),
-            document_id=str(document_id),
-            error_type=type(error).__name__,
-        )
-        document_event_broker.publish(
-            user_id,
-            {
-                "document_id": str(document_id),
-                "status": "processing_failed",
-                "page_count": document.page_count if document is not None else None,
-                "error_message": document.error_message if document is not None else str(error),
-            },
-        )
+        with repository.processing_lock(document_id) as acquired:
+            if not acquired:
+                return
+            document = repository.get_document_by_id(document_id=document_id)
+            if (
+                document is None
+                or document.user_id != user_id
+                or document.status != "processing"
+                or document.processing_attempt_id != processing_attempt_id
+            ):
+                return
+            try:
+                service = build_document_processing_service(db=db)
+                service.process_document(document_id=document_id, file_path=file_path)
+            except Exception as error:
+                db.rollback()
+                repository.fail_attempt(document_id, processing_attempt_id, str(error))
+                log_event(
+                    logger,
+                    logging.ERROR,
+                    "document.processing.background_failed",
+                    request_id=request_id,
+                    user_id=str(user_id),
+                    document_id=str(document_id),
+                    error_type=type(error).__name__,
+                )
+            document = repository.get_document_by_id(document_id=document_id)
+            if document is not None:
+                try:
+                    document_event_broker.publish(
+                        user_id,
+                        {
+                            "document_id": str(document.id),
+                            "status": document.status,
+                            "page_count": document.page_count,
+                            "error_message": document.error_message,
+                            "updated_at": (
+                                document.updated_at.isoformat()
+                                if document.updated_at
+                                else None
+                            ),
+                            "processing_attempt_id": (
+                                str(document.processing_attempt_id)
+                                if document.processing_attempt_id
+                                else None
+                            ),
+                        },
+                    )
+                except Exception as error:
+                    # SSE is best effort; notification failure must not undo ready.
+                    log_event(
+                        logger,
+                        logging.WARNING,
+                        "document.processing.event_failed",
+                        request_id=request_id,
+                        user_id=str(user_id),
+                        document_id=str(document_id),
+                        error_type=type(error).__name__,
+                    )
     finally:
         db.close()
 
@@ -248,9 +264,7 @@ def process_document_in_background(
 def get_embedding_service() -> EmbeddingService:
     if settings.embedding_provider == "nvidia":
         if not settings.nvidia_api_key:
-            raise ValueError(
-                "NVIDIA_API_KEY is required for NVIDIA embeddings"
-            )
+            raise ValueError("NVIDIA_API_KEY is required for NVIDIA embeddings")
 
         provider = NvidiaEmbeddingProvider(
             api_key=settings.nvidia_api_key,
@@ -267,9 +281,7 @@ def get_embedding_service() -> EmbeddingService:
             embedding_dimensions=settings.embedding_dimensions,
         )
 
-    raise ValueError(
-        f"Unsupported embedding provider: {settings.embedding_provider}"
-    )
+    raise ValueError(f"Unsupported embedding provider: {settings.embedding_provider}")
 
 
 def get_retrieval_service(
@@ -289,9 +301,7 @@ def get_retrieval_service(
 def get_llm_service() -> LLMService:
     if settings.llm_provider == "groq":
         if not settings.groq_api_key:
-            raise ValueError(
-                "GROQ_API_KEY is required for Groq LLMs"
-            )
+            raise ValueError("GROQ_API_KEY is required for Groq LLMs")
         provider = GroqLLMProvider(
             api_key=settings.groq_api_key,
             base_url=settings.llm_base_url,
@@ -302,9 +312,7 @@ def get_llm_service() -> LLMService:
             provider=provider,
         )
 
-    raise ValueError(
-        f"Unsupported LLM provider: {settings.llm_provider}"
-    )
+    raise ValueError(f"Unsupported LLM provider: {settings.llm_provider}")
 
 
 def get_reranking_service() -> RerankingService:
@@ -313,6 +321,7 @@ def get_reranking_service() -> RerankingService:
 
 def get_guardrail_service() -> GuardrailService:
     return GuardrailService()
+
 
 def get_retrieval_agent(
     retrieval_service: RetrievalService,
@@ -325,7 +334,6 @@ def get_retrieval_agent(
         minimum_confidence=settings.agentic_retrieval_min_confidence,
         max_retries=settings.agentic_retrieval_max_retries,
     )
-
 
 
 def get_rag_service(
@@ -354,5 +362,3 @@ def get_rag_service(
         retrieval_agent=retrieval_agent,
         agentic_retrieval_enabled=settings.agentic_retrieval_enabled,
     )
-
-

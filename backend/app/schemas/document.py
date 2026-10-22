@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class DocumentRead(BaseModel):
+    processing_attempt_id: uuid.UUID | None = None
     id: uuid.UUID
     user_id: uuid.UUID
     filename: str

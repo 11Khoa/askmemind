@@ -1,5 +1,7 @@
 import uuid
+from contextlib import contextmanager
 
+from sqlalchemy import text, update
 from sqlalchemy.orm import Session
 
 from app.core.types import DocumentStatus
@@ -32,6 +34,7 @@ class DocumentRepository:
             status=status.value,
             source_type=source_type,
             source_metadata=source_metadata,
+            processing_attempt_id=uuid.uuid4(),
         )
 
         self.db.add(document)
@@ -50,6 +53,51 @@ class DocumentRepository:
             .order_by(Document.created_at.desc())
             .all()
         )
+
+    @contextmanager
+    def processing_lock(self, document_id: uuid.UUID):
+        # A separate transaction keeps the advisory lock across checkpoint commits.
+        key = int.from_bytes(document_id.bytes[:8], "big", signed=True)
+        with self.db.get_bind().engine.connect() as connection, connection.begin():
+            acquired = connection.scalar(
+                text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": key}
+            )
+            yield bool(acquired)
+
+    def claim_retry(
+        self, document_id: uuid.UUID, user_id: uuid.UUID
+    ) -> Document | None:
+        result = self.db.execute(
+            update(Document)
+            .where(
+                Document.id == document_id,
+                Document.user_id == user_id,
+                Document.status.in_([DocumentStatus.PROCESSING_FAILED.value, "failed"]),
+            )
+            .values(
+                status=DocumentStatus.PROCESSING.value,
+                error_message=None,
+                processing_attempt_id=uuid.uuid4(),
+            )
+            .returning(Document),
+            execution_options={"populate_existing": True},
+        ).scalar_one_or_none()
+        self.db.commit()
+        return result
+
+    def fail_attempt(
+        self, document_id: uuid.UUID, attempt_id: uuid.UUID | None, reason: str
+    ) -> None:
+        self.db.execute(
+            update(Document)
+            .where(
+                Document.id == document_id,
+                Document.processing_attempt_id == attempt_id,
+                Document.status == DocumentStatus.PROCESSING.value,
+            )
+            .values(status=DocumentStatus.PROCESSING_FAILED.value, error_message=reason)
+        )
+        self.db.commit()
 
     def mark_processing_started(
         self,
