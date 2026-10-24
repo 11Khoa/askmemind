@@ -7,10 +7,12 @@ from app.database import engine
 
 
 @pytest.fixture(autouse=True)
-def isolate_route_rate_limits():
+def isolate_route_rate_limits(monkeypatch):
     # Router/service tests exercise their own behavior without a live Redis.
     # test_rate_limits uses a separate app with the real limiter dependencies.
     from app.main import app
+    from app.services import audit_service
+    monkeypatch.setattr(audit_service, "write_request_audit", lambda event: None)
     from app.core.rate_limits import (
         limit_login, limit_registration, limit_questions, limit_uploads,
     )

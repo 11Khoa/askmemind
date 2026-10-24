@@ -52,6 +52,7 @@ router = APIRouter(
 )
 def register_user(
     payload: UserCreate,
+    request: Request,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ):
     if settings.enable_registration is False:
@@ -61,10 +62,12 @@ def register_user(
         )
 
     try:
-        return auth_service.register_user(
+        user = auth_service.register_user(
             email=payload.email,
             password=payload.password,
         )
+        request.state.actor_id = user.id
+        return user
     except ValueError as error:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -79,6 +82,7 @@ def register_user(
 )
 def login_user(
     payload: UserLogin,
+    request: Request,
     response: Response,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ):
@@ -92,6 +96,7 @@ def login_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(error),
         ) from error
+    request.state.actor_id = getattr(auth_service, "authenticated_user_id", None)
     set_refresh_cookie(response, tokens)
     return AccessTokenResponse(access_token=tokens.access_token)
 
@@ -156,10 +161,13 @@ def logout(
 )
 def login_json_client(
     payload: UserLogin,
+    request: Request,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ):
     try:
-        return auth_service.login_user(payload.email, payload.password)
+        tokens = auth_service.login_user(payload.email, payload.password)
+        request.state.actor_id = getattr(auth_service, "authenticated_user_id", None)
+        return tokens
     except ValueError as error:
         raise HTTPException(status_code=401, detail=str(error)) from error
 

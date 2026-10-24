@@ -79,7 +79,7 @@ class DocumentRepository:
         document.processing_attempt_id = None
         self.db.commit()
 
-    def delete_document(self, document: Document) -> None:
+    def delete_document(self, document: Document, actor_id=None) -> None:
         # Remove retained excerpts as well as rows/vectors. Historical answers
         # remain in chats, but are no longer eligible as conversation context.
         for message in self.db.query(ChatMessage).populate_existing().join(Chat).filter(
@@ -92,6 +92,9 @@ class DocumentRepository:
                     **metadata, "context": "", "sources_deleted": True,
                     "citations": [c for c in citations if c.get("document_id") != str(document.id)],
                 }
+        if actor_id is not None:
+            from app.services.audit_service import record_audit
+            record_audit(self.db, actor_id, "admin.document.delete", document.id, document.user_id)
         self.db.delete(document)
         self.db.commit()
 

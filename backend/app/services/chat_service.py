@@ -47,16 +47,17 @@ class ChatService:
         return self.chat_repository.list_chats_by_user(user_id=user_id)
 
     def delete_chat(self, user_id: uuid.UUID, chat_id: uuid.UUID) -> None:
-        chat = self.get_user_chat(user_id, chat_id)
-        self.chat_repository.delete_chat(chat)
+        chat = self.get_user_chat(user_id, chat_id, allow_admin=True)
+        self.chat_repository.delete_chat(chat, actor_id=user_id)
 
-    def get_user_chat(self, user_id: uuid.UUID, chat_id: uuid.UUID) -> Chat:
+    def get_user_chat(self, user_id: uuid.UUID, chat_id: uuid.UUID, allow_admin: bool = False) -> Chat:
         chat = self.chat_repository.get_chat_by_id(chat_id=chat_id)
 
         if chat is None:
             raise ValueError("Chat not found")
 
-        if chat.user_id != user_id:
+        requester = self.user_repository.get_user_by_id(user_id) if chat.user_id != user_id else None
+        if chat.user_id != user_id and not (allow_admin and getattr(requester, "role", None) == "admin"):
             raise PermissionError("You don't have access to this chat")
 
         return chat
@@ -157,6 +158,7 @@ class ChatService:
         self.get_user_chat(
             user_id=user_id,
             chat_id=chat_id,
+            allow_admin=True,
         )
 
         return self.chat_repository.list_messages_by_chat(

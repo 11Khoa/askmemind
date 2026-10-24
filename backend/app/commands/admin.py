@@ -20,6 +20,8 @@ def main():
         if user is None or not user.is_active:
             parser.error("An active existing account is required.")
         user.role = "admin"
+        from app.services.audit_service import record_audit
+        record_audit(db, None, "admin.bootstrap", user.id, user.id)
     print("Administrator bootstrapped. No password or session credentials were changed.")
 
 

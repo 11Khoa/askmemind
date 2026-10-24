@@ -28,7 +28,10 @@ class ChatRepository:
     def get_chat_by_id(self, chat_id: uuid.UUID) -> Chat | None:
         return self.db.get(Chat, chat_id)
 
-    def delete_chat(self, chat: Chat) -> None:
+    def delete_chat(self, chat: Chat, actor_id=None) -> None:
+        if actor_id is not None:
+            from app.services.audit_service import record_audit
+            record_audit(self.db, actor_id, "admin.chat.delete", chat.id, chat.user_id)
         self.db.delete(chat)
         self.db.commit()
 

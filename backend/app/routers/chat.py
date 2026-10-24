@@ -4,7 +4,7 @@ import uuid
 from collections.abc import Iterator
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse, Response
 
 from app.core.dependencies import require_admin
@@ -165,6 +165,7 @@ def create_rag_question(
 
 @router.post("/{chat_id}/questions/stream", dependencies=[Depends(limit_questions)])
 def stream_rag_question(
+    request: Request,
     chat_id: uuid.UUID,
     payload: ChatQuestionCreate,
     current_user: Annotated[User, Depends(get_current_user)],
@@ -204,8 +205,10 @@ def stream_rag_question(
                     message = ChatMessageRead.model_validate(
                         stream_event.message,
                     ).model_dump(mode="json")
+                    request.state.audit_outcome = "success"
                     yield _sse_event("final", message)
         except Exception:
+            request.state.audit_outcome = "failure"
             logger.exception("chat.stream.failed")
             yield _sse_event("error", {
                 "detail": "Could not generate answer. Please try again.",
