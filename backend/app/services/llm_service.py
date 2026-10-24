@@ -7,6 +7,7 @@ class LLMProvider(Protocol):
         self,
         question: str,
         context: str,
+        history: list[dict[str, str]] | None = None,
     ) -> str:
         ...
 
@@ -14,6 +15,7 @@ class LLMProvider(Protocol):
         self,
         question: str,
         context: str,
+        history: list[dict[str, str]] | None = None,
     ) -> Iterator[str]:
         ...
 
@@ -29,18 +31,22 @@ class LLMService:
         self,
         question: str,
         context: str,
+        history: list[dict[str, str]] | None = None,
     ) -> str:
         return self.provider.generate_answer(
             question=question,
             context=context,
+            **({"history": history} if history else {}),
         )
 
     def stream_answer(
         self,
         question: str,
         context: str,
+        history: list[dict[str, str]] | None = None,
     ) -> Iterator[str]:
         yield from self.provider.stream_answer(
             question=question,
             context=context,
+            **({"history": history} if history else {}),
         )

@@ -11,6 +11,10 @@ class DocumentRetryConflict(Exception):
     pass
 
 
+class DocumentCleanupUnavailable(Exception):
+    pass
+
+
 class DocumentService:
     def __init__(
         self,
@@ -102,3 +106,34 @@ class DocumentService:
             document.processing_attempt_id,
             "Could not queue document processing. Please retry.",
         )
+
+    def delete_document(self, user_id: uuid.UUID, document_id: uuid.UUID) -> None:
+        document = self.get_user_document(user_id, document_id)
+        with self.document_repository.processing_lock(document_id) as acquired:
+            if not acquired:
+                raise DocumentRetryConflict("Document is being processed. Try deleting it shortly.")
+            document = self.get_user_document(user_id, document_id)
+            self.document_repository.begin_deletion(document)
+            try:
+                Path(document.file_path).unlink(missing_ok=True)
+            except OSError as error:
+                raise DocumentCleanupUnavailable("Could not remove PDF. Retry deleting the document.") from error
+            self.document_repository.delete_document(document)
+
+    def get_pdf_path(self, user_id: uuid.UUID, document_id: uuid.UUID) -> Path:
+        document = self.get_user_document(user_id, document_id)
+        if document.status == "deleting":
+            raise DocumentRetryConflict("Document is being deleted")
+        path = Path(document.file_path)
+        if not path.is_file():
+            raise ValueError("Original PDF is unavailable")
+        return path
+
+    def get_chunk(self, user_id: uuid.UUID, document_id: uuid.UUID, chunk_id: uuid.UUID):
+        document = self.get_user_document(user_id, document_id)
+        if document.status != DocumentStatus.READY.value:
+            raise DocumentRetryConflict("Document is not ready")
+        chunk = self.document_repository.get_chunk(document_id, chunk_id)
+        if chunk is None:
+            raise ValueError("Source passage not found")
+        return chunk

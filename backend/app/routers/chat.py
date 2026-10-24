@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 
 from app.core.dependencies import get_chat_service, get_current_user
 from app.core.logging import get_request_id
@@ -31,6 +31,21 @@ router = APIRouter(
 def _sse_event(event: str, data: dict[str, Any]) -> str:
     payload = json.dumps(data, ensure_ascii=False)
     return f"event: {event}\ndata: {payload}\n\n"
+
+
+@router.delete("/{chat_id}", status_code=204)
+def delete_chat(
+    chat_id: uuid.UUID,
+    user: Annotated[User, Depends(get_current_user)],
+    service: Annotated[ChatService, Depends(get_chat_service)],
+):
+    try:
+        service.delete_chat(user.id, chat_id)
+        return Response(status_code=204)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
 
 
 @router.get("", response_model=list[ChatRead])

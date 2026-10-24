@@ -89,6 +89,8 @@ class Settings(BaseSettings):
     login_requests_per_minute: int = Field(default=10, ge=1)
     register_requests_per_hour: int = Field(default=5, ge=1)
     question_requests_per_minute: int = Field(default=30, ge=1)
+    conversation_history_turns: int = Field(default=6, ge=1, le=20)
+    conversation_history_characters: int = Field(default=12000, ge=100, le=40000)
     upload_requests_per_hour: int = Field(default=20, ge=1)
     upload_dir: str = "storage/uploads"
     temp_dir: str = "storage/temp"

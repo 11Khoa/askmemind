@@ -79,12 +79,14 @@ class RagService:
         user_id: uuid.UUID,
         document_id: uuid.UUID | None = None,
         top_k: int = 3,
+        history: list[dict[str, str]] | None = None,
     ) -> RagAnswer:
         prepared = self._prepare_context(
-            question=question,
+            question=self._retrieval_question(question, history),
             user_id=user_id,
             document_id=document_id,
             top_k=top_k,
+            fallback_queries=self._fallback_queries(question, history),
         )
         if isinstance(prepared, RagAnswer):
             return prepared
@@ -93,6 +95,7 @@ class RagService:
         answer = self.llm_service.generate_answer(
             question=question,
             context=prepared.built_context.context,
+            **({"history": history} if history else {}),
         )
         llm_latency_ms = (perf_counter() - llm_started_at) * 1000
         log_event(
@@ -114,12 +117,14 @@ class RagService:
         user_id: uuid.UUID,
         document_id: uuid.UUID | None = None,
         top_k: int = 3,
+        history: list[dict[str, str]] | None = None,
     ) -> Iterator[RagStreamEvent]:
         prepared = self._prepare_context(
-            question=question,
+            question=self._retrieval_question(question, history),
             user_id=user_id,
             document_id=document_id,
             top_k=top_k,
+            fallback_queries=self._fallback_queries(question, history),
         )
         if isinstance(prepared, RagAnswer):
             yield RagStreamEvent(event="replace", token=prepared.answer)
@@ -131,6 +136,7 @@ class RagService:
         for token in self.llm_service.stream_answer(
             question=question,
             context=prepared.built_context.context,
+            **({"history": history} if history else {}),
         ):
             answer_chunks.append(token)
             yield RagStreamEvent(event="token", token=token)
@@ -153,12 +159,30 @@ class RagService:
             yield RagStreamEvent(event="replace", token=final_answer.answer)
         yield RagStreamEvent(event="final", answer=final_answer)
 
+    @staticmethod
+    def _fallback_queries(question, history):
+        if not history:
+            return []
+        previous = next((m["content"] for m in reversed(history) if m["role"] == "user"), "")
+        return list(dict.fromkeys([question, previous[:2000]]))
+
+    @staticmethod
+    def _retrieval_question(question: str, history: list[dict[str, str]] | None) -> str:
+        if not history:
+            return question
+        # Recent dialogue supplies referents for short follow-ups. Current
+        # evidence is always retrieved again; old answers are never evidence.
+        recent = history[-4:]
+        context = "\n".join(message["content"] for message in recent)[-2000:]
+        return f"{context}\nCurrent question: {question}"
+
     def _prepare_context(
         self,
         question: str,
         user_id: uuid.UUID,
         document_id: uuid.UUID | None,
         top_k: int,
+        fallback_queries: list[str] | None = None,
     ) -> PreparedRagContext | RagAnswer:
         total_started_at = perf_counter()
         retrieval_limit = (
@@ -198,6 +222,16 @@ class RagService:
                 document_id=document_id,
                 top_k=retrieval_limit,
             )
+        # Strict lexical AND search can reject a combined dialogue query. Try
+        # the current question, then its prior referent, without another LLM call.
+        for fallback_query in fallback_queries or []:
+            if retrieved_chunks:
+                break
+            if fallback_query and fallback_query != question:
+                retrieved_chunks = self.retrieval_service.retrieve_relevant_chunks(
+                    query=fallback_query, user_id=user_id,
+                    document_id=document_id, top_k=retrieval_limit,
+                )
         retrieval_latency_ms = (perf_counter() - retrieval_started_at) * 1000
         candidate_count = len(retrieved_chunks)
         log_event(

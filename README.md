@@ -59,6 +59,8 @@ The project focuses on the parts of RAG that usually decide whether it works out
 - JWT authentication, size and signature-checked PDF uploads.
 - Asynchronous document processing with Celery and Redis; document status is pushed to the browser in real time via Redis pub/sub and SSE.
 - Chat history with persisted citation metadata.
+- Delete conversations or documents, including PDF/chunk/vector cleanup. Inspect source passages and authenticated original PDFs.
+- Bounded conversation context for follow-up questions, isolated by the selected document scope and grounded in newly retrieved evidence.
 - Structured JSON logs with request IDs, stage latency and token usage; liveness and readiness probes.
 - Alembic migrations, Docker Compose stack, GitHub Actions CI against a real pgvector database.
 - React client (Vite, TypeScript, i18n) and a lightweight Streamlit client.
@@ -265,10 +267,14 @@ Enable the reranker and retry loop only after running the evaluation on your own
 | | `POST /documents/{id}/retry` | Retry a failed document in place (returns `202`, same DocumentRead) |
 | | `GET /documents`, `GET /documents/{id}` | List and inspect documents |
 | | `GET /documents/events` | SSE stream of document status changes |
+| | `DELETE /documents/{id}` | Delete PDF, chunks/vectors and cached source excerpts |
+| | `GET /documents/{id}/file` | Authenticated original PDF (inline, no-store) |
+| | `GET /documents/{id}/chunks/{chunk_id}` | Authenticated source passage and page |
 | Chats | `GET /chats`, `POST /chats` | Conversations |
 | | `GET /chats/{id}/messages`, `POST /chats/{id}/messages` | Message history |
 | | `POST /chats/{id}/questions` | Ask a question (single response) |
 | | `POST /chats/{id}/questions/stream` | Ask a question (SSE: `token`, `replace`, `final`, `error`) |
+| | `DELETE /chats/{id}` | Delete conversation and all its messages |
 | Health | `GET /health/live`, `GET /health/ready` | Liveness and readiness (`SELECT 1`) |
 
 Interactive documentation is served at `/docs`. A ready-made request collection is in `http/local-smoke.http`.
@@ -348,7 +354,6 @@ Checklist:
 
 ## Known Limitations
 
-- Document deletion is not implemented yet.
 - Chunking is fixed-size (1000 characters, 200 overlap) and does not follow sentence or section boundaries.
 - Streaming tokens are provisional; citation validation can replace the answer before the final event is saved. Clients must handle the `replace` event. Citation checks validate source identifiers, not semantic faithfulness.
 - Real-time status updates use Redis pub/sub, which does not replay missed events. After a dropped connection the client should refresh the document list.
@@ -360,7 +365,7 @@ Checklist:
 
 ## Roadmap
 
-- Document deletion with file and chunk cleanup, then object storage.
+- Object storage for uploaded PDFs.
 - Larger, multi-document evaluation set with answer-faithfulness scoring.
 - Compare the heuristic reranker against a cross-encoder.
 - SSE reconnect and state resync on the client.
