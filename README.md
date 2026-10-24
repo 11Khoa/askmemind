@@ -358,7 +358,7 @@ Checklist:
 
 - Chunking is fixed-size (1000 characters, 200 overlap) and does not follow sentence or section boundaries.
 - Streaming tokens are provisional; citation validation can replace the answer before the final event is saved. Clients must handle the `replace` event. Citation checks validate source identifiers, not semantic faithfulness.
-- Real-time status updates use Redis pub/sub, which does not replay missed events. After a dropped connection the client should refresh the document list.
+- Real-time status updates use Redis pub/sub, which does not replay missed events. The client reconnects with bounded backoff and reconciles known document statuses. See [SSE recovery and proxy settings](backend/docs/sse_recovery.md).
 - The reranker and query rewriter are heuristic, and the evaluation set covers one document. See [Evaluation](#evaluation).
 - Uploads use local disk rather than object storage.
 - Metrics export and distributed tracing are not configured; logs go to stdout.

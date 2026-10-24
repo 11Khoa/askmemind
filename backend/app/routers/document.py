@@ -1,11 +1,14 @@
 import uuid
 from typing import Annotated
+from sqlalchemy.orm import Session
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from starlette.responses import StreamingResponse, FileResponse, Response
+from starlette.concurrency import run_in_threadpool
 
 from app.core.dependencies import require_admin
 from app.core.dependencies import get_current_user, get_document_service
+from app.database import get_db
 from app.core.rate_limits import limit_uploads
 from app.schemas.document import DocumentRead, SourcePassageRead
 from app.services.document_events import document_event_broker
@@ -97,15 +100,20 @@ def list_documents(
 async def stream_document_events(
     request: Request,
     current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
 ):
+    user_id = current_user.id
+    # Authentication has finished; do not pin a database connection for the
+    # lifetime of an otherwise idle Redis/SSE subscription.
+    await run_in_threadpool(db.close)
     return StreamingResponse(
         document_event_broker.stream(
-            user_id=current_user.id,
+            user_id=user_id,
             request=request,
         ),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-transform",
             "X-Accel-Buffering": "no",
         },
     )
