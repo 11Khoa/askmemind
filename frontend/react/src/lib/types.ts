@@ -1,4 +1,5 @@
 export type User = {
+  role: 'user' | 'admin'
   id: string
   email: string
   is_active: boolean
@@ -15,6 +16,8 @@ export type DocumentStatus =
   | string
 
 export type DocumentStatusEvent = {
+  updated_at?: string | null
+  processing_attempt_id?: string | null
   document_id: string
   status: DocumentStatus
   page_count: number | null
@@ -22,6 +25,7 @@ export type DocumentStatusEvent = {
 }
 
 export type Document = {
+  processing_attempt_id?: string | null
   id: string
   user_id: string
   filename: string

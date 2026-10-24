@@ -11,32 +11,68 @@ import {
 } from 'lucide-react'
 
 import { api } from '../lib/api'
+import type { TokenResponse } from '../lib/types'
+
+type AuthMode = 'login' | 'register' | 'forgot' | 'reset'
 
 type AuthViewProps = {
-  onAuthenticated: (token: string) => void
+  onAuthenticated: (tokens: TokenResponse) => void
+  resetToken?: string
+  onResetFinished: () => void
+  notice?: string
+  onRetrySession: () => void
 }
 
-export function AuthView({ onAuthenticated }: AuthViewProps) {
+export function AuthView({ onAuthenticated, resetToken, onResetFinished, notice, onRetrySession }: AuthViewProps) {
   const { t } = useTranslation()
-  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [mode, setMode] = useState<AuthMode>(resetToken === undefined ? 'login' : 'reset')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmation, setConfirmation] = useState('')
   const [error, setError] = useState('')
+  const [completed, setCompleted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const invalidReset = mode === 'reset' && (!resetToken || resetToken.length < 32 || resetToken.length > 256)
+
+  function changeMode(next: AuthMode) {
+    setMode(next)
+    setError('')
+    setPassword('')
+    setConfirmation('')
+    setCompleted(false)
+    if (resetToken !== undefined && next === 'login') onResetFinished()
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
+    if (mode === 'reset' && password !== confirmation) {
+      setError(t('auth.passwordMismatch'))
+      return
+    }
     setSubmitting(true)
 
     try {
+      if (mode === 'forgot') {
+        await api.forgotPassword(email)
+        setCompleted(true)
+        return
+      }
+      if (mode === 'reset') {
+        if (invalidReset) return
+        await api.resetPassword(resetToken!, password)
+        setPassword('')
+        setConfirmation('')
+        setCompleted(true)
+        return
+      }
       if (mode === 'register') {
         await api.register(email, password)
       }
       const token = await api.login(email, password)
-      onAuthenticated(token.access_token)
+      onAuthenticated(token)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : t('auth.unableToSignIn'))
+      setError(caught instanceof Error ? caught.message : t('common.genericError'))
     } finally {
       setSubmitting(false)
     }
@@ -78,72 +114,106 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
 
           <div className="auth-heading">
             <p className="eyebrow">
-              {mode === 'login'
-                ? t('auth.heading.loginEyebrow')
-                : t('auth.heading.registerEyebrow')}
+              {t(`auth.heading.${mode}Eyebrow`)}
             </p>
             <h2>
-              {mode === 'login'
-                ? t('auth.heading.loginTitle')
-                : t('auth.heading.registerTitle')}
+              {t(`auth.heading.${mode}Title`)}
             </h2>
             <p>
-              {mode === 'login'
-                ? t('auth.heading.loginDescription')
-                : t('auth.heading.registerDescription')}
+              {t(`auth.heading.${mode}Description`)}
             </p>
           </div>
 
-          <div className="segmented" aria-label={t('auth.modeLabel')}>
+          {(mode === 'login' || mode === 'register') && <div className="segmented" aria-label={t('auth.modeLabel')}>
             <button
               type="button"
               className={mode === 'login' ? 'is-active' : ''}
-              onClick={() => { setMode('login'); setError('') }}
+              disabled={submitting}
+              onClick={() => changeMode('login')}
             >
               {t('auth.signIn')}
             </button>
             <button
               type="button"
               className={mode === 'register' ? 'is-active' : ''}
-              onClick={() => { setMode('register'); setError('') }}
+              disabled={submitting}
+              onClick={() => changeMode('register')}
             >
               {t('auth.register')}
             </button>
-          </div>
+          </div>}
 
-          <form onSubmit={submit} className="auth-form">
-            <label>
+          {notice && <div className="form-error" role="alert">{notice}</div>}
+          {notice && <button className="auth-link" type="button" disabled={submitting} onClick={onRetrySession}>
+            {t('auth.retrySession')}
+          </button>}
+          {completed && (
+            <div className="form-success" role="status">
+              {t(mode === 'forgot' ? 'auth.resetEmailSent' : 'auth.passwordResetSuccess')}
+            </div>
+          )}
+          {invalidReset && <div className="form-error" role="alert">{t('auth.invalidResetLink')}</div>}
+
+          {!completed && !invalidReset && <form onSubmit={submit} className="auth-form">
+            {mode !== 'reset' && <label>
               {t('auth.email')}
               <input
                 type="email"
                 autoComplete="email"
                 placeholder={t('auth.emailPlaceholder')}
                 value={email}
+                disabled={submitting}
                 onChange={(event) => setEmail(event.target.value)}
                 required
               />
-            </label>
-            <label>
-              {t('auth.password')}
+            </label>}
+            {mode !== 'forgot' && <label>
+              {t(mode === 'reset' ? 'auth.newPassword' : 'auth.password')}
               <input
                 type="password"
                 autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                 placeholder={t('auth.passwordPlaceholder')}
                 minLength={8}
+                maxLength={128}
                 value={password}
+                disabled={submitting}
                 onChange={(event) => setPassword(event.target.value)}
                 required
               />
-            </label>
+            </label>}
+            {mode === 'reset' && <label>
+              {t('auth.confirmPassword')}
+              <input
+                type="password"
+                autoComplete="new-password"
+                minLength={8}
+                maxLength={128}
+                value={confirmation}
+                disabled={submitting}
+                onChange={(event) => setConfirmation(event.target.value)}
+                required
+              />
+            </label>}
 
             {error && <div className="form-error" role="alert">{error}</div>}
 
             <button className="primary-button auth-submit" disabled={submitting}>
               {submitting ? <LoaderCircle className="spin" size={18} /> : <LockKeyhole size={17} />}
-              {mode === 'login' ? t('auth.signIn') : t('auth.createAccount')}
+              {t({ login: 'auth.signIn', register: 'auth.createAccount', forgot: 'auth.sendResetLink', reset: 'auth.resetPassword' }[mode])}
               {!submitting && <ArrowRight size={17} />}
             </button>
-          </form>
+          </form>}
+
+          {(mode === 'login' || mode === 'reset') && !completed && (
+            <button className="auth-link" type="button" disabled={submitting} onClick={() => changeMode('forgot')}>
+              {t(mode === 'reset' ? 'auth.requestNewLink' : 'auth.forgotPassword')}
+            </button>
+          )}
+          {(mode === 'forgot' || mode === 'reset') && (
+            <button className="auth-link" type="button" disabled={submitting} onClick={() => changeMode('login')}>
+              {t('auth.backToSignIn')}
+            </button>
+          )}
 
           <p className="auth-footnote">{t('auth.footnote')}</p>
         </div>

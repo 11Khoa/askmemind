@@ -1,0 +1,27 @@
+.admin-shell { min-height: 100dvh; padding: 32px clamp(16px, 4vw, 64px); background: #faf9f6; color: #263e35; }
+.admin-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.admin-header h1 { font-size: 28px; margin: 8px 0; }
+.admin-notice { background: #e9f1ec; border-left: 3px solid #427c62; padding: 14px; margin: 24px 0; line-height: 1.5; }
+.admin-shell button, .admin-navigation { border: 1px solid #c7d4cd; background: white; border-radius: 8px; padding: 9px 13px; cursor: pointer; color: #275e49; }
+.admin-navigation { margin: 0 16px 16px; }
+.admin-shell button:disabled { opacity: .5; cursor: default; }
+.admin-tabs, .admin-toolbar, .admin-toolbar form { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.admin-tabs button[aria-current] { background: #275e49; color: white; }
+.admin-toolbar { margin: 24px 0; }
+.admin-toolbar input, .admin-user-form input, .admin-user-form select { padding: 10px; border: 1px solid #c7d4cd; border-radius: 8px; max-width: 100%; background: white; color: #263e35; }
+.admin-table-wrap { overflow: auto; max-width: 100%; border: 1px solid #dbe2dd; border-radius: 12px; }
+.admin-shell table { border-collapse: collapse; width: 100%; min-width: 760px; background: white; font-size: 14px; }
+.admin-shell th { text-align: left; background: #edf2ee; padding: 14px; white-space: nowrap; }
+.admin-shell td { padding: 14px; border-top: 1px solid #e3e8e4; vertical-align: top; max-width: 350px; overflow-wrap: anywhere; }
+.admin-shell td:first-child { min-width: 150px; }
+.admin-shell small { display: block; margin-top: 6px; color: #687c72; font-size: 11px; }
+.admin-actions { min-width: 200px; }
+.admin-actions button { margin: 0 6px 6px 0; font-size: 12px; }
+.admin-shell .danger-text { color: #ad3227; }
+.admin-pagination { display: flex; justify-content: center; align-items: center; gap: 16px; margin-top: 24px; font-size: 13px; }
+.admin-user-form { display: grid; gap: 16px; }
+.admin-user-form label { display: grid; gap: 6px; }
+.admin-message { padding: 14px 0; border-bottom: 1px solid #dbe2dd; }
+.admin-message p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.admin-shell pre { max-width: 300px; white-space: pre-wrap; }
+@media(max-width: 600px) { .admin-header { align-items: flex-start; } .admin-header h1 { font-size: 23px; } .admin-pagination { gap: 8px; flex-wrap: wrap; } }

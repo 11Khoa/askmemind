@@ -16,6 +16,7 @@ type MessageListProps = {
   selectedDocumentName?: string
   expandedCitation: string | null
   onSuggestion: (question: string) => void
+  onViewSource: (citation: Citation) => void
   onToggleCitation: (id: string | null) => void
 }
 
@@ -28,6 +29,7 @@ export function MessageList({
   expandedCitation,
   onSuggestion,
   onToggleCitation,
+  onViewSource,
 }: MessageListProps) {
   const { t } = useTranslation()
   const listRef = useRef<HTMLElement>(null)
@@ -60,7 +62,7 @@ export function MessageList({
       ) : messages.map((message) => (
         <Message key={message.id} message={message} documents={documents}
           expandedCitation={expandedCitation}
-          onToggleCitation={onToggleCitation} />
+          onToggleCitation={onToggleCitation} onViewSource={onViewSource} />
       ))}
 
       {sending && (
@@ -109,10 +111,12 @@ function Message({
   documents,
   expandedCitation,
   onToggleCitation,
+  onViewSource,
 }: {
   message: ChatMessage
   documents: Document[]
   expandedCitation: string | null
+  onViewSource: (citation: Citation) => void
   onToggleCitation: (id: string | null) => void
 }) {
   const { t } = useTranslation()
@@ -159,6 +163,7 @@ function Message({
                   document={documents.find(
                     (item) => item.id === citation.document_id,
                   )}
+                  onViewSource={() => onViewSource(citation)}
                   expanded={expandedCitation === key}
                   onToggle={() => onToggleCitation(
                     expandedCitation === key ? null : key,
@@ -177,16 +182,18 @@ function CitationItem({
   document,
   expanded,
   onToggle,
+  onViewSource,
 }: {
   citation: Citation
   document?: Document
   expanded: boolean
   onToggle: () => void
+  onViewSource: () => void
 }) {
   const { t } = useTranslation()
 
   return (
-    <button className="citation" onClick={onToggle}>
+    <div className="citation-container"><button className="citation" onClick={onToggle} aria-expanded={expanded}>
       <span className="citation-number">{citation.source_number}</span>
       <span className="citation-copy">
         <strong>{document?.original_filename || t('chat.sourceFallback')}</strong>
@@ -206,5 +213,7 @@ function CitationItem({
       </span>
       <ChevronDown className={expanded ? 'is-rotated' : ''} size={16} />
     </button>
+      {expanded && <button className="source-open" onClick={onViewSource}>{t('sources.viewPassage')}</button>}
+    </div>
   )
 }

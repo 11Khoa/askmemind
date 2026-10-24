@@ -3,11 +3,11 @@ import type {
   ChatMessage,
   Document,
   DocumentStatusEvent,
-  TokenResponse,
   User,
 } from './types'
+import { ApiError, authenticatedResponse, loginSession, logoutSession, request } from './http'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'
+export { ApiError } from './http'
 
 type SseFrame = {
   event: string
@@ -18,52 +18,6 @@ type QuestionStreamHandlers = {
   onToken: (token: string) => void
   onReplace: (content: string) => void
   onFinal: (message: ChatMessage) => void
-}
-
-export class ApiError extends Error {
-  status: number
-
-  constructor(message: string, status: number) {
-    super(message)
-    this.name = 'ApiError'
-    this.status = status
-  }
-}
-
-async function request<T>(
-  path: string,
-  options: RequestInit = {},
-  token?: string,
-): Promise<T> {
-  const headers = new Headers(options.headers)
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`)
-  }
-  if (options.body && !(options.body instanceof FormData)) {
-    headers.set('Content-Type', 'application/json')
-  }
-
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers,
-  })
-
-  if (!response.ok) {
-    let message = `Request failed with status ${response.status}`
-    try {
-      const payload = (await response.json()) as { detail?: unknown }
-      if (typeof payload.detail === 'string') {
-        message = payload.detail
-      } else if (payload.detail) {
-        message = JSON.stringify(payload.detail)
-      }
-    } catch {
-      // Keep the HTTP fallback message when the response is not JSON.
-    }
-    throw new ApiError(message, response.status)
-  }
-
-  return response.json() as Promise<T>
 }
 
 function parseSseFrame(frame: string): SseFrame | null {
@@ -114,10 +68,7 @@ export function isAbortError(error: unknown) {
 
 export const api = {
   login(email: string, password: string) {
-    return request<TokenResponse>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    })
+    return loginSession(email, password)
   },
 
   register(email: string, password: string) {
@@ -127,26 +78,70 @@ export const api = {
     })
   },
 
-  me(token: string) {
-    return request<User>('/auth/me', {}, token)
+  logout() {
+    return logoutSession()
   },
 
-  listDocuments(token: string) {
-    return request<Document[]>('/documents', {}, token)
+  forgotPassword(email: string) {
+    return request<{ message: string }>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    })
   },
 
-  uploadDocument(token: string, file: File) {
+  resetPassword(token: string, newPassword: string) {
+    return request<void>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, new_password: newPassword }),
+    })
+  },
+
+  me() {
+    return request<User>('/auth/me', {}, true)
+  },
+
+  listDocuments() {
+    return request<Document[]>('/documents', {}, true)
+  },
+
+  deleteDocument(documentId: string) {
+    return request<void>(`/documents/${documentId}`, { method: 'DELETE' }, true)
+  },
+
+  sourcePassage(documentId: string, chunkId: string) {
+    return request<{ content: string; page_number: number | null }>(
+      `/documents/${documentId}/chunks/${chunkId}`, {}, true,
+    )
+  },
+
+  async documentPdf(documentId: string, signal: AbortSignal) {
+    const response = await authenticatedResponse(`/documents/${documentId}/file`, { signal })
+    return response.blob()
+  },
+
+  deleteChat(chatId: string) {
+    return request<void>(`/chats/${chatId}`, { method: 'DELETE' }, true)
+  },
+
+  getDocument(documentId: string) {
+    return request<Document>(`/documents/${documentId}`, {}, true)
+  },
+
+  retryDocument(documentId: string) {
+    return request<Document>(`/documents/${documentId}/retry`, { method: 'POST' }, true)
+  },
+
+  uploadDocument(file: File) {
     const body = new FormData()
     body.append('file', file)
     return request<Document>(
       '/documents/upload',
       { method: 'POST', body },
-      token,
+      true,
     )
   },
 
   subscribeDocumentEvents(
-    token: string,
     onEvent: (event: DocumentStatusEvent) => void,
     onError: (error: unknown) => void,
   ) {
@@ -154,17 +149,9 @@ export const api = {
 
     void (async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/documents/events`, {
-          headers: { Authorization: `Bearer ${token}` },
+        const response = await authenticatedResponse('/documents/events', {
           signal: controller.signal,
         })
-
-        if (!response.ok) {
-          throw new ApiError(
-            `Document event stream failed with status ${response.status}`,
-            response.status,
-          )
-        }
 
         await readSseStream(response, (frame) => {
           onEvent(frame.data as DocumentStatusEvent)
@@ -179,31 +166,30 @@ export const api = {
     return () => controller.abort()
   },
 
-  listChats(token: string) {
-    return request<Chat[]>('/chats', {}, token)
+  listChats() {
+    return request<Chat[]>('/chats', {}, true)
   },
 
-  createChat(token: string, title: string | null) {
+  createChat(title: string | null) {
     return request<Chat>(
       '/chats',
       {
         method: 'POST',
         body: JSON.stringify({ title }),
       },
-      token,
+      true,
     )
   },
 
-  listMessages(token: string, chatId: string) {
+  listMessages(chatId: string) {
     return request<ChatMessage[]>(
       `/chats/${chatId}/messages`,
       {},
-      token,
+      true,
     )
   },
 
   askQuestion(
-    token: string,
     chatId: string,
     content: string,
     documentId: string | null,
@@ -219,12 +205,11 @@ export const api = {
           top_k: topK,
         }),
       },
-      token,
+      true,
     )
   },
 
   async streamQuestion(
-    token: string,
     chatId: string,
     content: string,
     documentId: string | null,
@@ -232,10 +217,9 @@ export const api = {
     handlers: QuestionStreamHandlers,
     signal?: AbortSignal,
   ) {
-    const response = await fetch(`${API_BASE_URL}/chats/${chatId}/questions/stream`, {
+    const response = await authenticatedResponse(`/chats/${chatId}/questions/stream`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -245,17 +229,6 @@ export const api = {
       }),
       signal,
     })
-
-    if (!response.ok) {
-      let message = `Request failed with status ${response.status}`
-      try {
-        const payload = (await response.json()) as { detail?: unknown }
-        if (typeof payload.detail === 'string') message = payload.detail
-      } catch {
-        // Keep the HTTP fallback message when the response is not JSON.
-      }
-      throw new ApiError(message, response.status)
-    }
 
     await readSseStream(response, (frame) => {
       const data = frame.data as { token?: string; detail?: string }
