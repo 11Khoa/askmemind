@@ -62,16 +62,24 @@ The production build is written to `dist/`.
 Set the Vercel project's Root Directory to `frontend/react` and select the
 branch containing the frontend changes for deployment. The `vercel.json` in
 that directory selects Vite, builds with `npm run build`, publishes `dist`,
-and serves the React entry page for `/reset-password` links.
+and serves the React entry page for `/reset-password`, `/admin` and their
+trailing-slash variants. These explicit rewrites are required for direct visits,
+reloads and authentication redirects; Vite's development fallback does not
+validate the deployed hosting rules. Missing `/api/*` paths are not rewritten.
 
 Set `VITE_API_URL` to the deployed backend origin in Vercel environment
 variables, then redeploy. Vite's local `/api` proxy is only used during local
 development. Allow the frontend origin in backend CORS settings.
 
 Configure `PASSWORD_RESET_URL` in the API and worker to
-`https://your-frontend.example/reset-password`. Verify both `/` and
-`/reset-password` on the deployed site; the latter shows an incomplete-link
+`https://your-frontend.example/reset-password`. Verify `/`,
+`/admin`, `/admin/` and `/reset-password` on the deployed site; the latter shows an incomplete-link
 message when opened without a token.
+
+Run `VITE_API_URL=/api npm run test:e2e:production` to test the built SPA with a
+static test host that applies only the rewrites declared in `vercel.json`.
+It covers direct admin visits/reloads, sign-out/sign-in and browser history.
+Authentication APIs are mocked; this does not deploy or modify the live site.
 
 ## Authentication
 

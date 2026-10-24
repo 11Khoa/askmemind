@@ -21,16 +21,22 @@ function consumeResetLink() {
 }
 const initialResetLink = consumeResetLink()
 
+function isAdminPath() {
+  return window.location.pathname.replace(/\/$/, '') === '/admin'
+}
+
 export default function AppRoot() {
   const { t } = useTranslation()
   const sessionStatus = useSyncExternalStore(session.subscribe, session.status)
   const [resetLink, setResetLink] = useState(initialResetLink)
   const [authNotice, setAuthNotice] = useState('')
   const loggingOut = useRef(false)
-  const [view, setView] = useState(() => window.location.pathname === '/admin' ? 'admin' : 'workspace')
+  const lastLocation = useRef(window.location.href)
+  const [view, setView] = useState(() => isAdminPath() ? 'admin' : 'workspace')
 
   function navigateView(next: 'admin' | 'workspace') {
     window.history.pushState(null, '', next === 'admin' ? '/admin' : '/')
+    lastLocation.current = window.location.href
     setView(next)
   }
 
@@ -44,12 +50,13 @@ export default function AppRoot() {
   }, [resetLink, sessionStatus, t])
 
   useEffect(() => {
-    let lastUrl = window.location.href
     function navigate() {
-      if (window.location.href === lastUrl) return
+      // A fragment navigation may emit both popstate and hashchange. Consume
+      // a reset token once, while tracking our own pushState navigations too.
+      if (window.location.href === lastLocation.current) return
       const link = consumeResetLink()
-      setView(window.location.pathname === '/admin' ? 'admin' : 'workspace')
-      lastUrl = window.location.href
+      lastLocation.current = window.location.href
+      setView(isAdminPath() ? 'admin' : 'workspace')
       setResetLink(link)
     }
     window.addEventListener('hashchange', navigate)
@@ -76,6 +83,7 @@ export default function AppRoot() {
     session.set(null)
     setResetLink(null)
     window.history.replaceState(null, '', '/')
+    lastLocation.current = window.location.href
   }
 
   return (
