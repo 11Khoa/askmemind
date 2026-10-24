@@ -1,4 +1,5 @@
 import json
+import logging
 import uuid
 from collections.abc import Iterator
 from typing import Annotated, Any
@@ -7,6 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 
 from app.core.dependencies import get_chat_service, get_current_user
+from app.core.logging import get_request_id
+from app.core.rate_limits import limit_questions
 from app.schemas.chat import (
     ChatCreate,
     ChatMessageCreate,
@@ -16,6 +19,8 @@ from app.schemas.chat import (
 )
 from app.services.chat_service import ChatService
 from app.models.user import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/chats",
@@ -84,7 +89,10 @@ def list_chat_messages(
         ) from error
 
 
-@router.post("/{chat_id}/messages", response_model=ChatMessageRead)
+@router.post(
+    "/{chat_id}/messages", response_model=ChatMessageRead,
+    dependencies=[Depends(limit_questions)],
+)
 def create_user_message(
     chat_id: uuid.UUID,
     payload: ChatMessageCreate,
@@ -109,7 +117,10 @@ def create_user_message(
         ) from error
 
 
-@router.post("/{chat_id}/questions", response_model=ChatMessageRead)
+@router.post(
+    "/{chat_id}/questions", response_model=ChatMessageRead,
+    dependencies=[Depends(limit_questions)],
+)
 def create_rag_question(
     chat_id: uuid.UUID,
     payload: ChatQuestionCreate,
@@ -136,7 +147,7 @@ def create_rag_question(
         ) from error
 
 
-@router.post("/{chat_id}/questions/stream")
+@router.post("/{chat_id}/questions/stream", dependencies=[Depends(limit_questions)])
 def stream_rag_question(
     chat_id: uuid.UUID,
     payload: ChatQuestionCreate,
@@ -178,11 +189,15 @@ def stream_rag_question(
                         stream_event.message,
                     ).model_dump(mode="json")
                     yield _sse_event("final", message)
-        except Exception as error:
-            yield _sse_event("error", {"detail": str(error)})
+        except Exception:
+            logger.exception("chat.stream.failed")
+            yield _sse_event("error", {
+                "detail": "Could not generate answer. Please try again.",
+                "request_id": get_request_id(),
+            })
 
     return StreamingResponse(
         events(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache"},
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

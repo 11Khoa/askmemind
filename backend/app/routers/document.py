@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from starlette.responses import StreamingResponse
 
 from app.core.dependencies import get_current_user, get_document_service
+from app.core.rate_limits import limit_uploads
 from app.schemas.document import DocumentRead
 from app.services.document_events import document_event_broker
 from app.services.document_service import DocumentService
@@ -71,7 +72,10 @@ def get_document(
         raise HTTPException(status_code=403, detail=str(error)) from error
 
 
-@router.post("/{document_id}/retry", response_model=DocumentRead, status_code=202)
+@router.post(
+    "/{document_id}/retry", response_model=DocumentRead, status_code=202,
+    dependencies=[Depends(limit_uploads)],
+)
 def retry_document(
     document_id: uuid.UUID,
     current_user: Annotated[User, Depends(get_current_user)],

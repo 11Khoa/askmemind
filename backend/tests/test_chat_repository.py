@@ -98,6 +98,16 @@ def test_get_next_message_index_returns_zero_for_empty_chat(db_session) -> None:
     assert result == 0
 
 
+def test_reserving_answer_slot_prevents_later_message_from_claiming_it(db_session):
+    user = create_test_user(db_session)
+    repository = ChatRepository(db_session)
+    chat = repository.create_chat(user.id, "Reservations")
+    assert repository.get_next_message_index(chat.id, slots=2) == 0
+    assert repository.get_next_message_index(chat.id) == 2
+    # Failed requests can leave gaps; positions must never be reused.
+    assert repository.get_next_message_index(chat.id, slots=2) == 3
+
+
 def test_create_message_persists_message_with_metadata(db_session) -> None:
     user = create_test_user(db_session)
     repository = ChatRepository(db=db_session)

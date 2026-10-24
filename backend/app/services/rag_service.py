@@ -148,8 +148,9 @@ class RagService:
         final_answer = self._finish_answer(
             answer=answer,
             prepared=prepared,
-            validate_citations=False,
         )
+        if final_answer.answer != answer:
+            yield RagStreamEvent(event="replace", token=final_answer.answer)
         yield RagStreamEvent(event="final", answer=final_answer)
 
     def _prepare_context(
@@ -272,10 +273,9 @@ class RagService:
         self,
         answer: str,
         prepared: PreparedRagContext,
-        validate_citations: bool = True,
     ) -> RagAnswer:
         citations = prepared.built_context.citations
-        if self.citation_validation_enabled and validate_citations:
+        if self.citation_validation_enabled:
             guardrail_service = self._require_guardrail_service()
             validation = guardrail_service.validate_answer_citations(
                 answer=answer,

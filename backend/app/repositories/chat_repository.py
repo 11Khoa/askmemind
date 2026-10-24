@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import func
+from sqlalchemy import func, update
 from sqlalchemy.orm import Session
 
 from app.core.types import ChatRole
@@ -35,17 +35,22 @@ class ChatRepository:
             .all()
         )
 
-    def get_next_message_index(self, chat_id: uuid.UUID) -> int:
-        max_index = (
-            self.db.query(func.max(ChatMessage.message_index))
-            .filter(ChatMessage.chat_id == chat_id)
-            .scalar()
-        )
+    def get_next_message_index(self, chat_id: uuid.UUID, slots: int = 1) -> int:
+        """Atomically reserve positions, releasing the row lock before LLM work.
 
-        if max_index is None:
-            return 0
-
-        return max_index + 1
+        A question reserves two positions so its answer stays adjacent even when
+        another request finishes first. Failed/cancelled requests may leave gaps.
+        """
+        if slots < 1:
+            raise ValueError("slots must be positive")
+        end_index = self.db.execute(
+            update(Chat)
+            .where(Chat.id == chat_id)
+            .values(next_message_index=Chat.next_message_index + slots)
+            .returning(Chat.next_message_index)
+        ).scalar_one()
+        self.db.commit()
+        return end_index - slots
 
     def create_message(
         self,
@@ -64,6 +69,14 @@ class ChatRepository:
         )
 
         self.db.add(message)
+        # Keep explicit-index imports and existing repository callers compatible.
+        self.db.execute(
+            update(Chat)
+            .where(Chat.id == chat_id)
+            .values(next_message_index=func.greatest(
+                Chat.next_message_index, message_index + 1,
+            ))
+        )
         self.db.commit()
         self.db.refresh(message)
 

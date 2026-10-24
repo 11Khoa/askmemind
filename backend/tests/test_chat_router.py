@@ -9,6 +9,38 @@ from app.core.dependencies import get_chat_service, get_current_user
 from app.main import app
 
 
+def test_stream_hides_internal_errors():
+    user_id, chat_id = uuid.uuid4(), uuid.uuid4()
+    service = Mock()
+    service.stream_rag_message.side_effect = RuntimeError("secret SQL connection details")
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=user_id)
+    app.dependency_overrides[get_chat_service] = lambda: service
+    try:
+        response = TestClient(app).post(
+            f"/chats/{chat_id}/questions/stream", json={"content": "Question?"},
+        )
+        assert "event: error" in response.text
+        assert "secret SQL" not in response.text
+        assert "Could not generate answer" in response.text
+        assert response.headers["X-Accel-Buffering"] == "no"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_question_length_is_bounded():
+    service = Mock()
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=uuid.uuid4())
+    app.dependency_overrides[get_chat_service] = lambda: service
+    try:
+        response = TestClient(app).post(
+            f"/chats/{uuid.uuid4()}/questions", json={"content": "x" * 8001},
+        )
+        assert response.status_code == 422
+        service.create_rag_message.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_create_rag_question_returns_assistant_message() -> None:
     user_id = uuid.uuid4()
     chat_id = uuid.uuid4()

@@ -340,6 +340,7 @@ Checklist:
 - See [Authentication](backend/docs/authentication.md) for payloads, configuration, deployment and the eight implementation lessons.
 - Every retrieval query is joined on the owning user, so users cannot read each other's chunks.
 - Uploads are limited by size, content type and `%PDF-` signature; files are stored under generated names.
+- Login/registration and per-user questions/uploads have shared Redis rate limits. Per-user document/storage quotas and worker PDF page/text limits are configurable. See [backend limits and deployment](backend/docs/backend_hardening.md), including the chat counter migration rollout.
 - Document context is delimited as untrusted input in the prompt, and the model is instructed never to follow instructions found inside documents.
 - Never commit `.env` or credentials; rotate any secret that may have been exposed.
 
@@ -349,7 +350,7 @@ Checklist:
 
 - Document deletion is not implemented yet.
 - Chunking is fixed-size (1000 characters, 200 overlap) and does not follow sentence or section boundaries.
-- Citation validation is enforced on the non-streaming endpoint; the streaming endpoint emits tokens before validation.
+- Streaming tokens are provisional; citation validation can replace the answer before the final event is saved. Clients must handle the `replace` event. Citation checks validate source identifiers, not semantic faithfulness.
 - Real-time status updates use Redis pub/sub, which does not replay missed events. After a dropped connection the client should refresh the document list.
 - The reranker and query rewriter are heuristic, and the evaluation set covers one document. See [Evaluation](#evaluation).
 - Uploads use local disk rather than object storage.

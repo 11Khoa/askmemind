@@ -166,6 +166,7 @@ class ChatService:
 
         user_message_index = self.chat_repository.get_next_message_index(
             chat_id=chat_id,
+            slots=2,
         )
 
         self.chat_repository.create_message(

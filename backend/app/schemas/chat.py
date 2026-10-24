@@ -27,12 +27,14 @@ class ChatRead(BaseModel):
 class ChatMessageCreate(BaseModel):
     content: str = Field(
         min_length=1,
+        max_length=8000,
     )
 
 
 class ChatQuestionCreate(BaseModel):
     content: str = Field(
         min_length=1,
+        max_length=8000,
     )
     document_id: uuid.UUID | None = None
     top_k: int = Field(

@@ -383,7 +383,8 @@ def test_stream_answer_question_yields_tokens_then_final_answer() -> None:
     )
 
 
-def test_stream_answer_question_keeps_streamed_answer_without_citation_replacement() -> None:
+@pytest.mark.parametrize("answer", ["Answer without a citation.", "Incorrect source [Source 999]."])
+def test_stream_answer_question_replaces_answer_with_invalid_citations(answer) -> None:
     citation = ContextCitation(
         source_number=1,
         document_id=uuid.uuid4(),
@@ -405,7 +406,7 @@ def test_stream_answer_question_keeps_streamed_answer_without_citation_replaceme
     )
     llm_service = Mock(spec=LLMService)
     llm_service.stream_answer.return_value = iter([
-        "Answer without a citation.",
+        answer,
     ])
 
     service = RagService(
@@ -421,9 +422,10 @@ def test_stream_answer_question_keeps_streamed_answer_without_citation_replaceme
         user_id=uuid.uuid4(),
     ))
 
-    assert [event.event for event in events] == ["token", "final"]
+    assert [event.event for event in events] == ["token", "replace", "final"]
+    assert events[-2].token == NO_ANSWER_MESSAGE
     assert events[-1].answer == RagAnswer(
-        answer="Answer without a citation.",
-        context="Context",
-        citations=[citation],
+        answer=NO_ANSWER_MESSAGE,
+        context="",
+        citations=[],
     )

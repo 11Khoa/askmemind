@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, File, HTTPException, status, UploadFile
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
+from app.core.rate_limits import limit_uploads
+from app.repositories.document_repository import DocumentQuotaExceeded
 from app.core.dependencies import (
     get_current_user,
     get_document_service,
@@ -60,6 +62,7 @@ def _read_validated_pdf(
     "/upload",
     response_model=DocumentRead,
     status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(limit_uploads)],
 )
 def upload_document(
     file: Annotated[UploadFile, File()],
@@ -92,6 +95,9 @@ def upload_document(
             content_type=file.content_type or "",
             file_size_bytes=file_size_bytes,
         )
+    except DocumentQuotaExceeded as error:
+        file_storage_service.delete_file(file_path=file_path)
+        raise HTTPException(status_code=409, detail=str(error)) from error
     except ValueError as error:
         file_storage_service.delete_file(file_path=file_path)
         raise HTTPException(

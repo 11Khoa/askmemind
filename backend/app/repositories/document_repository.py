@@ -1,11 +1,17 @@
 import uuid
 from contextlib import contextmanager
 
-from sqlalchemy import text, update
+from sqlalchemy import func, text, update
 from sqlalchemy.orm import Session
 
 from app.core.types import DocumentStatus
+from app.core.config import settings
 from app.models.document import Document
+from app.models.user import User
+
+
+class DocumentQuotaExceeded(Exception):
+    pass
 
 
 class DocumentRepository:
@@ -24,6 +30,18 @@ class DocumentRepository:
         source_type: str,
         source_metadata: dict | None = None,
     ) -> Document:
+        # Serialize quota checks with insertion across simultaneous uploads.
+        self.db.query(User.id).filter(User.id == user_id).with_for_update().one()
+        count, stored_bytes = self.db.query(
+            func.count(Document.id), func.coalesce(func.sum(Document.file_size_bytes), 0)
+        ).filter(Document.user_id == user_id).one()
+        if count >= settings.max_documents_per_user:
+            self.db.rollback()
+            raise DocumentQuotaExceeded("Document limit reached")
+        if stored_bytes + file_size_bytes > settings.max_storage_per_user_mb * 1024 * 1024:
+            self.db.rollback()
+            raise DocumentQuotaExceeded("Document storage limit reached")
+
         document = Document(
             user_id=user_id,
             filename=filename,
