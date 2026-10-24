@@ -1,4 +1,5 @@
 export type User = {
+  role: 'user' | 'admin'
   id: string
   email: string
   is_active: boolean

@@ -68,9 +68,9 @@ export function Sidebar({
             <MessageSquare size={16} />
             <span>{chat.title || t('chat.untitledConversation')}</span>
             <time>{formatDate(chat.updated_at, i18n.language)}</time>
-          </button><button className="icon-button delete-action" disabled={busy}
+          </button>{user?.role === 'admin' && <button className="icon-button delete-action" disabled={busy}
             aria-label={t('chat.deleteNamed', { title: chat.title || t('chat.untitledConversation') })}
-            onClick={() => onDeleteChat(chat)}><Trash2 size={15} /></button></div>
+            onClick={() => onDeleteChat(chat)}><Trash2 size={15} /></button>}</div>
         ))}
       </nav>
 

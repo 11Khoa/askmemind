@@ -13,7 +13,7 @@ test.beforeEach(async ({ page }) => {
     const path = new URL(route.request().url()).pathname
     const method = route.request().method()
     if (path === '/api/auth/refresh') return route.fulfill({ json: { access_token: 'access', token_type: 'bearer' } })
-    if (path === '/api/auth/me') return route.fulfill({ json: { id: 'user-1', email: 'owner@example.com' } })
+    if (path === '/api/auth/me') return route.fulfill({ json: { id: 'user-1', email: 'owner@example.com', role: 'admin' } })
     if (path === '/api/documents/events') return route.fulfill({ contentType: 'text/event-stream', body: ': connected\n\n' })
     if (path === '/api/documents') return route.fulfill({ json: documents })
     if (path === '/api/chats') return route.fulfill({ json: chats })

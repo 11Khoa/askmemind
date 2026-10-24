@@ -20,6 +20,7 @@ type DocumentsPanelProps = {
   onRetry: (documentId: string) => void
   onDelete: (document: Document) => void
   busy: boolean
+  canDelete: boolean
 }
 
 function formatBytes(bytes: number) {
@@ -41,6 +42,7 @@ export function DocumentsPanel({
   onRetry,
   onDelete,
   busy,
+  canDelete,
 }: DocumentsPanelProps) {
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
@@ -130,9 +132,9 @@ export function DocumentsPanel({
                   {retrying ? t('documents.retrying') : t('documents.retry')}
                 </button>
               )}
-              <button className="icon-button delete-action" disabled={busy || retrying}
+              {canDelete && <button className="icon-button delete-action" disabled={busy || retrying}
                 aria-label={t('documents.deleteNamed', { filename: document.original_filename })}
-                onClick={() => onDelete(document)}><Trash2 size={15} /></button>
+                onClick={() => onDelete(document)}><Trash2 size={15} /></button>}
             </div>
           )
         })}

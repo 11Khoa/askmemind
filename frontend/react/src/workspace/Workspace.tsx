@@ -508,6 +508,7 @@ export function Workspace({ onLogout }: WorkspaceProps) {
         open={documentsOpen}
         uploading={uploading}
         retryingIds={retryingIds}
+        canDelete={user?.role === 'admin'}
         busy={sending || deleting}
         onDelete={(document) => { setDeleteError(''); setDeleteTarget({ kind: 'document', id: document.id, name: document.original_filename }) }}
         onClose={() => setDocumentsOpen(false)}
