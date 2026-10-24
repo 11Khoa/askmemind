@@ -5,6 +5,7 @@ from app.models.document import Document
 from app.models.user import User
 from app.models.refresh_token import RefreshToken
 from app.models.password_reset_token import PasswordResetToken
+from app.models.audit_event import AuditEvent
 
 __all__ = [
     "Chat",

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 
 from app.core.config import settings
+from app.core.rate_limits import limit_login, limit_registration
 from app.core.browser_auth import (
     clear_refresh_cookie,
     read_refresh_cookie,
@@ -45,9 +46,13 @@ router = APIRouter(
 )
 
 
-@router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register", response_model=UserRead, status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(limit_registration)],
+)
 def register_user(
     payload: UserCreate,
+    request: Request,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ):
     if settings.enable_registration is False:
@@ -57,10 +62,12 @@ def register_user(
         )
 
     try:
-        return auth_service.register_user(
+        user = auth_service.register_user(
             email=payload.email,
             password=payload.password,
         )
+        request.state.actor_id = user.id
+        return user
     except ValueError as error:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -71,10 +78,11 @@ def register_user(
 @router.post(
     "/login",
     response_model=AccessTokenResponse,
-    dependencies=[Depends(require_browser_csrf)],
+    dependencies=[Depends(require_browser_csrf), Depends(limit_login)],
 )
 def login_user(
     payload: UserLogin,
+    request: Request,
     response: Response,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ):
@@ -88,6 +96,7 @@ def login_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(error),
         ) from error
+    request.state.actor_id = getattr(auth_service, "authenticated_user_id", None)
     set_refresh_cookie(response, tokens)
     return AccessTokenResponse(access_token=tokens.access_token)
 
@@ -148,14 +157,17 @@ def logout(
 @router.post(
     "/token/login",
     response_model=TokenResponse,
-    dependencies=[Depends(require_json_token_client)],
+    dependencies=[Depends(require_json_token_client), Depends(limit_login)],
 )
 def login_json_client(
     payload: UserLogin,
+    request: Request,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ):
     try:
-        return auth_service.login_user(payload.email, payload.password)
+        tokens = auth_service.login_user(payload.email, payload.password)
+        request.state.actor_id = getattr(auth_service, "authenticated_user_id", None)
+        return tokens
     except ValueError as error:
         raise HTTPException(status_code=401, detail=str(error)) from error
 

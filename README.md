@@ -57,8 +57,11 @@ The project focuses on the parts of RAG that usually decide whether it works out
 
 **Platform**
 - JWT authentication, size and signature-checked PDF uploads.
+- User/admin roles, admin-only deletion, and an audited administration API for users, documents and conversations.
 - Asynchronous document processing with Celery and Redis; document status is pushed to the browser in real time via Redis pub/sub and SSE.
 - Chat history with persisted citation metadata.
+- Delete conversations or documents, including PDF/chunk/vector cleanup. Inspect source passages and authenticated original PDFs.
+- Bounded conversation context for follow-up questions, isolated by the selected document scope and grounded in newly retrieved evidence.
 - Structured JSON logs with request IDs, stage latency and token usage; liveness and readiness probes.
 - Alembic migrations, Docker Compose stack, GitHub Actions CI against a real pgvector database.
 - React client (Vite, TypeScript, i18n) and a lightweight Streamlit client.
@@ -265,10 +268,14 @@ Enable the reranker and retry loop only after running the evaluation on your own
 | | `POST /documents/{id}/retry` | Retry a failed document in place (returns `202`, same DocumentRead) |
 | | `GET /documents`, `GET /documents/{id}` | List and inspect documents |
 | | `GET /documents/events` | SSE stream of document status changes |
+| | `DELETE /documents/{id}` | Delete PDF, chunks/vectors and cached source excerpts |
+| | `GET /documents/{id}/file` | Authenticated original PDF (inline, no-store) |
+| | `GET /documents/{id}/chunks/{chunk_id}` | Authenticated source passage and page |
 | Chats | `GET /chats`, `POST /chats` | Conversations |
 | | `GET /chats/{id}/messages`, `POST /chats/{id}/messages` | Message history |
 | | `POST /chats/{id}/questions` | Ask a question (single response) |
 | | `POST /chats/{id}/questions/stream` | Ask a question (SSE: `token`, `replace`, `final`, `error`) |
+| | `DELETE /chats/{id}` | Delete conversation and all its messages |
 | Health | `GET /health/live`, `GET /health/ready` | Liveness and readiness (`SELECT 1`) |
 
 Interactive documentation is served at `/docs`. A ready-made request collection is in `http/local-smoke.http`.
@@ -334,12 +341,14 @@ Checklist:
 ## Security
 
 - Passwords are hashed with a modern adaptive algorithm; sessions use short-lived JWTs.
+- Public sign-up always creates a `user`; only administrators can create accounts with selected roles. Existing accounts remain users until explicitly promoted. See [RBAC deployment and administrator bootstrap](backend/docs/rbac_and_admin.md).
 - Browser login returns an access token in JSON and a persistent, host-only HttpOnly refresh cookie. Login/refresh/logout require a trusted Origin and `X-CSRF-Protection: 1`. Refresh tokens are stored as SHA-256 digests, rotated once per use with absolute session expiry, and revoked on logout. Reuse revokes all refresh sessions for that account. Optional JSON-token endpoints are isolated from browser cookie authentication.
 - Protected requests check a Redis access-token blacklist. Redis outages return `503`; blacklist keys expire with the JWT. Password resets increment a DB token version to invalidate every existing access token and revoke all refresh tokens.
 - Password recovery uses expiring, single-use tokens delivered over SMTP by Celery, with generic responses and Redis rate limits. Configure `PASSWORD_RESET_URL` and SMTP settings in both API and worker environments.
 - See [Authentication](backend/docs/authentication.md) for payloads, configuration, deployment and the eight implementation lessons.
 - Every retrieval query is joined on the owning user, so users cannot read each other's chunks.
 - Uploads are limited by size, content type and `%PDF-` signature; files are stored under generated names.
+- Login/registration and per-user questions/uploads have shared Redis rate limits. Per-user document/storage quotas and worker PDF page/text limits are configurable. See [backend limits and deployment](backend/docs/backend_hardening.md), including the chat counter migration rollout.
 - Document context is delimited as untrusted input in the prompt, and the model is instructed never to follow instructions found inside documents.
 - Never commit `.env` or credentials; rotate any secret that may have been exposed.
 
@@ -347,9 +356,8 @@ Checklist:
 
 ## Known Limitations
 
-- Document deletion is not implemented yet.
 - Chunking is fixed-size (1000 characters, 200 overlap) and does not follow sentence or section boundaries.
-- Citation validation is enforced on the non-streaming endpoint; the streaming endpoint emits tokens before validation.
+- Streaming tokens are provisional; citation validation can replace the answer before the final event is saved. Clients must handle the `replace` event. Citation checks validate source identifiers, not semantic faithfulness.
 - Real-time status updates use Redis pub/sub, which does not replay missed events. After a dropped connection the client should refresh the document list.
 - The reranker and query rewriter are heuristic, and the evaluation set covers one document. See [Evaluation](#evaluation).
 - Uploads use local disk rather than object storage.
@@ -359,7 +367,7 @@ Checklist:
 
 ## Roadmap
 
-- Document deletion with file and chunk cleanup, then object storage.
+- Object storage for uploaded PDFs.
 - Larger, multi-document evaluation set with answer-faithfulness scoring.
 - Compare the heuristic reranker against a cross-encoder.
 - SSE reconnect and state resync on the client.

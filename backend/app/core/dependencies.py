@@ -6,7 +6,7 @@ from functools import lru_cache
 import jwt
 from typing import Annotated
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from redis import Redis
@@ -125,6 +125,7 @@ def get_current_access_payload(
 def get_current_user(
     token_payload: Annotated[AccessTokenPayload, Depends(get_current_access_payload)],
     db: Annotated[Session, Depends(get_db)],
+    request: Request = None,
 ) -> User:
     user_id = uuid.UUID(token_payload.subject)
     user_repository = UserRepository(db=db)
@@ -142,6 +143,8 @@ def get_current_user(
         )
 
     bind_user_id(user.id)
+    if request is not None:
+        request.state.actor_id = user.id
     return user
 
 
@@ -159,6 +162,13 @@ def get_document_service(
 
 def get_file_storage_service() -> FileStorageService:
     return FileStorageService(upload_dir=str(settings.resolved_upload_dir))
+
+
+def require_admin(user: Annotated[User, Depends(get_current_user)]) -> User:
+    # Read role from the current DB-backed user, never a client/JWT role claim.
+    if getattr(user, "role", None) != "admin":
+        raise HTTPException(status_code=403, detail="Administrator permission required")
+    return user
 
 
 def build_document_processing_service(db: Session) -> DocumentProcessingService:

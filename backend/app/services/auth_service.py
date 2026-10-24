@@ -55,6 +55,7 @@ class AuthService:
         if password_is_valid is False:
             raise ValueError("Invalid email or password")
 
+        self.authenticated_user_id = user.id
         # Sign while holding the user lock; never reload a newer version after commit.
         access_token = create_access_token(str(user.id), user.token_version)
         refresh_token = create_opaque_token()

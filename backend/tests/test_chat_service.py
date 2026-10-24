@@ -17,6 +17,7 @@ def test_create_chat_when_user_exists() -> None:
     expected_chat = Mock()
 
     chat_repository = Mock(spec=ChatRepository)
+    chat_repository.conversation_history.return_value = []
     user_repository = Mock(spec=UserRepository)
     rag_service = Mock()
 
@@ -46,6 +47,7 @@ def test_create_chat_when_user_not_found() -> None:
     user_id = uuid.uuid4()
 
     chat_repository = Mock(spec=ChatRepository)
+    chat_repository.conversation_history.return_value = []
     user_repository = Mock(spec=UserRepository)
     rag_service = Mock()
 
@@ -73,6 +75,7 @@ def test_get_user_chat_returns_chat_for_owner() -> None:
 
     chat = Mock()
     chat_repository = Mock(spec=ChatRepository)
+    chat_repository.conversation_history.return_value = []
     user_repository = Mock(spec=UserRepository)
     rag_service = Mock()
 
@@ -100,6 +103,7 @@ def test_get_user_chat_raises_when_chat_not_found() -> None:
     chat_id = uuid.uuid4()
 
     chat_repository = Mock(spec=ChatRepository)
+    chat_repository.conversation_history.return_value = []
     user_repository = Mock(spec=UserRepository)
     rag_service = Mock()
 
@@ -130,6 +134,7 @@ def test_get_user_chat_raises_when_user_is_not_owner() -> None:
     chat.user_id = owner_id
 
     chat_repository = Mock(spec=ChatRepository)
+    chat_repository.conversation_history.return_value = []
     user_repository = Mock(spec=UserRepository)
     chat_repository.get_chat_by_id.return_value = chat
 
@@ -158,6 +163,7 @@ def test_list_user_chats_when_user_exists() -> None:
     expected_chats = [Mock(), Mock()]
 
     chat_repository = Mock(spec=ChatRepository)
+    chat_repository.conversation_history.return_value = []
     user_repository = Mock(spec=UserRepository)
     rag_service = Mock()
 
@@ -185,6 +191,7 @@ def test_list_user_chats_when_user_not_found() -> None:
     user_id = uuid.uuid4()
 
     chat_repository = Mock(spec=ChatRepository)
+    chat_repository.conversation_history.return_value = []
     user_repository = Mock(spec=UserRepository)
 
     user_repository.get_user_by_id.return_value = None
@@ -211,6 +218,7 @@ def test_create_user_message_success() -> None:
     expected_message = Mock()
 
     chat_repository = Mock(spec=ChatRepository)
+    chat_repository.conversation_history.return_value = []
     user_repository = Mock(spec=UserRepository)
 
     chat = Mock()
@@ -257,6 +265,7 @@ def test_list_chat_messages_success() -> None:
     chat.user_id = user_id
 
     chat_repository = Mock(spec=ChatRepository)
+    chat_repository.conversation_history.return_value = []
     user_repository = Mock(spec=UserRepository)
 
     chat_repository.get_chat_by_id.return_value = chat
@@ -295,6 +304,7 @@ def test_create_rag_message_persists_user_message_then_assistant_message() -> No
     assistant_message = Mock()
 
     chat_repository = Mock(spec=ChatRepository)
+    chat_repository.conversation_history.return_value = []
     user_repository = Mock(spec=UserRepository)
     rag_service = Mock()
 

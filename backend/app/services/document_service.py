@@ -11,6 +11,10 @@ class DocumentRetryConflict(Exception):
     pass
 
 
+class DocumentCleanupUnavailable(Exception):
+    pass
+
+
 class DocumentService:
     def __init__(
         self,
@@ -35,6 +39,7 @@ class DocumentService:
         self,
         user_id: uuid.UUID,
         document_id: uuid.UUID,
+        allow_admin: bool = False,
     ) -> Document:
         document = self.document_repository.get_document_by_id(
             document_id=document_id,
@@ -43,7 +48,8 @@ class DocumentService:
         if document is None:
             raise ValueError("Document not found")
 
-        if document.user_id != user_id:
+        requester = self.user_repository.get_user_by_id(user_id) if document.user_id != user_id else None
+        if document.user_id != user_id and not (allow_admin and getattr(requester, "role", None) == "admin"):
             raise PermissionError("You don't have access to this document")
 
         return document
@@ -102,3 +108,34 @@ class DocumentService:
             document.processing_attempt_id,
             "Could not queue document processing. Please retry.",
         )
+
+    def delete_document(self, user_id: uuid.UUID, document_id: uuid.UUID) -> None:
+        document = self.get_user_document(user_id, document_id, allow_admin=True)
+        with self.document_repository.processing_lock(document_id) as acquired:
+            if not acquired:
+                raise DocumentRetryConflict("Document is being processed. Try deleting it shortly.")
+            document = self.get_user_document(user_id, document_id, allow_admin=True)
+            self.document_repository.begin_deletion(document)
+            try:
+                Path(document.file_path).unlink(missing_ok=True)
+            except OSError as error:
+                raise DocumentCleanupUnavailable("Could not remove PDF. Retry deleting the document.") from error
+            self.document_repository.delete_document(document, actor_id=user_id)
+
+    def get_pdf_path(self, user_id: uuid.UUID, document_id: uuid.UUID) -> Path:
+        document = self.get_user_document(user_id, document_id, allow_admin=True)
+        if document.status == "deleting":
+            raise DocumentRetryConflict("Document is being deleted")
+        path = Path(document.file_path)
+        if not path.is_file():
+            raise ValueError("Original PDF is unavailable")
+        return path
+
+    def get_chunk(self, user_id: uuid.UUID, document_id: uuid.UUID, chunk_id: uuid.UUID):
+        document = self.get_user_document(user_id, document_id, allow_admin=True)
+        if document.status != DocumentStatus.READY.value:
+            raise DocumentRetryConflict("Document is not ready")
+        chunk = self.document_repository.get_chunk(document_id, chunk_id)
+        if chunk is None:
+            raise ValueError("Source passage not found")
+        return chunk

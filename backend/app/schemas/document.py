@@ -23,3 +23,12 @@ class DocumentRead(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SourcePassageRead(BaseModel):
+    id: uuid.UUID
+    document_id: uuid.UUID
+    content: str
+    page_number: int | None
+    chunk_index: int
+    model_config = ConfigDict(from_attributes=True)

@@ -1,12 +1,16 @@
 import json
+import logging
 import uuid
 from collections.abc import Iterator
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import StreamingResponse, Response
 
+from app.core.dependencies import require_admin
 from app.core.dependencies import get_chat_service, get_current_user
+from app.core.logging import get_request_id
+from app.core.rate_limits import limit_questions
 from app.schemas.chat import (
     ChatCreate,
     ChatMessageCreate,
@@ -17,6 +21,8 @@ from app.schemas.chat import (
 from app.services.chat_service import ChatService
 from app.models.user import User
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(
     prefix="/chats",
     tags=["chats"],
@@ -26,6 +32,21 @@ router = APIRouter(
 def _sse_event(event: str, data: dict[str, Any]) -> str:
     payload = json.dumps(data, ensure_ascii=False)
     return f"event: {event}\ndata: {payload}\n\n"
+
+
+@router.delete("/{chat_id}", status_code=204)
+def delete_chat(
+    chat_id: uuid.UUID,
+    user: Annotated[User, Depends(require_admin)],
+    service: Annotated[ChatService, Depends(get_chat_service)],
+):
+    try:
+        service.delete_chat(user.id, chat_id)
+        return Response(status_code=204)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
 
 
 @router.get("", response_model=list[ChatRead])
@@ -44,15 +65,19 @@ def list_chats(
 
 @router.post("", response_model=ChatRead)
 def create_chat(
+    request: Request,
     payload: ChatCreate,
     current_user: Annotated[User, Depends(get_current_user)],
     chat_service: Annotated[ChatService, Depends(get_chat_service)],
 ):
     try:
-        return chat_service.create_chat(
+        chat = chat_service.create_chat(
             user_id=current_user.id,
             title=payload.title,
         )
+        request.state.audit_resource_id = chat.id
+        request.state.target_user_id = current_user.id
+        return chat
     except ValueError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -84,7 +109,10 @@ def list_chat_messages(
         ) from error
 
 
-@router.post("/{chat_id}/messages", response_model=ChatMessageRead)
+@router.post(
+    "/{chat_id}/messages", response_model=ChatMessageRead,
+    dependencies=[Depends(limit_questions)],
+)
 def create_user_message(
     chat_id: uuid.UUID,
     payload: ChatMessageCreate,
@@ -109,7 +137,10 @@ def create_user_message(
         ) from error
 
 
-@router.post("/{chat_id}/questions", response_model=ChatMessageRead)
+@router.post(
+    "/{chat_id}/questions", response_model=ChatMessageRead,
+    dependencies=[Depends(limit_questions)],
+)
 def create_rag_question(
     chat_id: uuid.UUID,
     payload: ChatQuestionCreate,
@@ -136,8 +167,9 @@ def create_rag_question(
         ) from error
 
 
-@router.post("/{chat_id}/questions/stream")
+@router.post("/{chat_id}/questions/stream", dependencies=[Depends(limit_questions)])
 def stream_rag_question(
+    request: Request,
     chat_id: uuid.UUID,
     payload: ChatQuestionCreate,
     current_user: Annotated[User, Depends(get_current_user)],
@@ -177,12 +209,18 @@ def stream_rag_question(
                     message = ChatMessageRead.model_validate(
                         stream_event.message,
                     ).model_dump(mode="json")
+                    request.state.audit_outcome = "success"
                     yield _sse_event("final", message)
-        except Exception as error:
-            yield _sse_event("error", {"detail": str(error)})
+        except Exception:
+            request.state.audit_outcome = "failure"
+            logger.exception("chat.stream.failed")
+            yield _sse_event("error", {
+                "detail": "Could not generate answer. Please try again.",
+                "request_id": get_request_id(),
+            })
 
     return StreamingResponse(
         events(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache"},
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

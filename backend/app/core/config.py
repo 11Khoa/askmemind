@@ -82,6 +82,16 @@ class Settings(BaseSettings):
     citation_validation_enabled: bool = True
 
     max_upload_size_mb: int = Field(default=25, ge=1, le=100)
+    max_pdf_pages: int = Field(default=500, ge=1, le=10000)
+    max_pdf_text_characters: int = Field(default=2_000_000, ge=1, le=20_000_000)
+    max_documents_per_user: int = Field(default=100, ge=1)
+    max_storage_per_user_mb: int = Field(default=500, ge=1)
+    login_requests_per_minute: int = Field(default=10, ge=1)
+    register_requests_per_hour: int = Field(default=5, ge=1)
+    question_requests_per_minute: int = Field(default=30, ge=1)
+    conversation_history_turns: int = Field(default=6, ge=1, le=20)
+    conversation_history_characters: int = Field(default=12000, ge=100, le=40000)
+    upload_requests_per_hour: int = Field(default=20, ge=1)
     upload_dir: str = "storage/uploads"
     temp_dir: str = "storage/temp"
 

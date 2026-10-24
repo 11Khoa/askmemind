@@ -1,11 +1,20 @@
 import uuid
 from contextlib import contextmanager
 
-from sqlalchemy import text, update
+from sqlalchemy import func, text, update
 from sqlalchemy.orm import Session
 
 from app.core.types import DocumentStatus
+from app.core.config import settings
 from app.models.document import Document
+from app.models.user import User
+from app.models.chunk import Chunk
+from app.models.chat import Chat
+from app.models.chat_message import ChatMessage
+
+
+class DocumentQuotaExceeded(Exception):
+    pass
 
 
 class DocumentRepository:
@@ -24,6 +33,18 @@ class DocumentRepository:
         source_type: str,
         source_metadata: dict | None = None,
     ) -> Document:
+        # Serialize quota checks with insertion across simultaneous uploads.
+        self.db.query(User.id).filter(User.id == user_id).with_for_update().one()
+        count, stored_bytes = self.db.query(
+            func.count(Document.id), func.coalesce(func.sum(Document.file_size_bytes), 0)
+        ).filter(Document.user_id == user_id).one()
+        if count >= settings.max_documents_per_user:
+            self.db.rollback()
+            raise DocumentQuotaExceeded("Document limit reached")
+        if stored_bytes + file_size_bytes > settings.max_storage_per_user_mb * 1024 * 1024:
+            self.db.rollback()
+            raise DocumentQuotaExceeded("Document storage limit reached")
+
         document = Document(
             user_id=user_id,
             filename=filename,
@@ -44,7 +65,38 @@ class DocumentRepository:
         return document
 
     def get_document_by_id(self, document_id: uuid.UUID) -> Document | None:
-        return self.db.get(Document, document_id)
+        return self.db.query(Document).populate_existing().filter(Document.id == document_id).first()
+
+    def get_chunk(self, document_id: uuid.UUID, chunk_id: uuid.UUID) -> Chunk | None:
+        return self.db.query(Chunk).filter(
+            Chunk.document_id == document_id, Chunk.id == chunk_id,
+        ).first()
+
+    def begin_deletion(self, document: Document) -> None:
+        # Persist intent before touching disk. A failed cleanup can be retried;
+        # queued workers and retrieval both exclude this status.
+        document.status = "deleting"
+        document.processing_attempt_id = None
+        self.db.commit()
+
+    def delete_document(self, document: Document, actor_id=None) -> None:
+        # Remove retained excerpts as well as rows/vectors. Historical answers
+        # remain in chats, but are no longer eligible as conversation context.
+        for message in self.db.query(ChatMessage).populate_existing().join(Chat).filter(
+            Chat.user_id == document.user_id, ChatMessage.role == "assistant",
+        ).order_by(ChatMessage.id).with_for_update(of=ChatMessage).yield_per(100):
+            metadata = message.message_metadata or {}
+            citations = metadata.get("citations", [])
+            if any(c.get("document_id") == str(document.id) for c in citations):
+                message.message_metadata = {
+                    **metadata, "context": "", "sources_deleted": True,
+                    "citations": [c for c in citations if c.get("document_id") != str(document.id)],
+                }
+        if actor_id is not None:
+            from app.services.audit_service import record_audit
+            record_audit(self.db, actor_id, "admin.document.delete", document.id, document.user_id)
+        self.db.delete(document)
+        self.db.commit()
 
     def list_documents_by_user(self, user_id: uuid.UUID) -> list[Document]:
         return (

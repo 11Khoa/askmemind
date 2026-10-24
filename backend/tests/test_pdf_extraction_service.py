@@ -64,3 +64,23 @@ def test_extract_raises_error_when_pdf_has_no_text(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="PDF does not contain extractable text"):
         service.extract(pdf_path)
+
+
+def test_extract_rejects_pdf_over_page_limit(tmp_path):
+    path = tmp_path / "many-pages.pdf"
+    with fitz.open() as document:
+        document.new_page()
+        document.new_page()
+        document.save(path)
+    with pytest.raises(ValueError, match="page limit"):
+        PdfExtractionService(max_pages=1).extract(path)
+
+
+def test_extract_rejects_pdf_over_total_text_limit(tmp_path):
+    path = tmp_path / "too-much-text.pdf"
+    with fitz.open() as document:
+        for _ in range(2):
+            document.new_page().insert_text((72, 72), "1234567890")
+        document.save(path)
+    with pytest.raises(ValueError, match="extracted text limit"):
+        PdfExtractionService(max_text_characters=15).extract(path)

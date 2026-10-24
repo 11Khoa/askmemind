@@ -16,7 +16,8 @@ from app.core.logging import (
     log_event,
     start_request_context,
 )
-from app.routers import auth, chat, document, health, upload
+from app.routers import auth, chat, document, health, upload, admin
+from app.services.audit_service import AuditMiddleware
 from app.services.token_store import TokenStoreUnavailable
 
 configure_logging(level=settings.log_level)
@@ -62,7 +63,7 @@ async def request_observability_middleware(request: Request, call_next):
             duration_ms=round(duration_ms, 2),
         )
         response.headers["X-Request-ID"] = get_request_id() or ""
-        if request.url.path.startswith("/auth/"):
+        if request.url.path.startswith(("/auth/", "/admin/")):
             response.headers["Cache-Control"] = "no-store"
             response.headers["Pragma"] = "no-cache"
         return response
@@ -107,3 +108,5 @@ app.include_router(auth.router)
 app.include_router(chat.router)
 app.include_router(upload.router)
 app.include_router(document.router)
+app.include_router(admin.router)
+app.add_middleware(AuditMiddleware)

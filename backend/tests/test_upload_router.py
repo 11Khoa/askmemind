@@ -128,3 +128,28 @@ def test_upload_returns_202_processing_without_waiting_for_task(monkeypatch) -> 
     assert response.json()["status"] == DocumentStatus.PROCESSING.value
     assert document.status == DocumentStatus.PROCESSING.value
     assert document.error_message is None
+
+
+def test_quota_rejection_removes_saved_file(monkeypatch):
+    from unittest.mock import Mock
+    from app.repositories.document_repository import DocumentQuotaExceeded
+
+    user_id = uuid.uuid4()
+    service = Mock()
+    service.create_uploaded_document.side_effect = DocumentQuotaExceeded("Document limit reached")
+    storage = Mock()
+    storage.save_upload.return_value = "/tmp/rejected.pdf"
+    enqueue = Mock()
+    monkeypatch.setattr(upload_router, "enqueue_document", enqueue)
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=user_id)
+    app.dependency_overrides[get_document_service] = lambda: service
+    app.dependency_overrides[get_file_storage_service] = lambda: storage
+    try:
+        response = TestClient(app).post(
+            "/documents/upload", files={"file": ("original.pdf", PDF_BYTES, "application/pdf")},
+        )
+        assert response.status_code == 409
+        storage.delete_file.assert_called_once_with(file_path="/tmp/rejected.pdf")
+        enqueue.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
