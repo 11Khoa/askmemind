@@ -2,7 +2,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.core.dependencies import get_db, require_admin
 from app.models.user import User
@@ -102,9 +102,13 @@ def chat_messages(chat_id: uuid.UUID, db: DB, page: PageNumber = 1, page_size: P
 @router.get("/activity", response_model=Page[AuditRead])
 def list_activity(db: DB, page: PageNumber = 1, page_size: PageSize = 20,
                   user_id: uuid.UUID | None = None, q: str = Query(default="", max_length=100)):
-    query = db.query(AuditEvent)
+    actor, target = aliased(User), aliased(User)
+    query = db.query(AuditEvent, actor.email, target.email).outerjoin(
+        actor, actor.id == AuditEvent.actor_id,
+    ).outerjoin(target, target.id == AuditEvent.target_user_id)
     if user_id:
         query = query.filter((AuditEvent.actor_id == user_id) | (AuditEvent.target_user_id == user_id))
     if q:
         query = query.filter(AuditEvent.action.icontains(q, autoescape=True))
-    return paginate(query.order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc()), page, page_size)
+    return paginate(query.order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc()), page, page_size,
+        lambda row: {**AuditRead.model_validate(row[0]).model_dump(), "actor_email": row[1], "target_email": row[2]})

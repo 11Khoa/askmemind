@@ -78,6 +78,7 @@ def test_admin_creates_selected_roles_and_audits_without_secrets(admin_workspace
     assert activity["total"] == 2
     assert "Never-log" not in json.dumps(activity)
     assert all(event["actor_id"] == str(w.admin.id) for event in activity["items"])
+    assert all(event["actor_email"] == "admin@example.com" for event in activity["items"])
 
 
 @pytest.mark.parametrize("change", [{"role": "user"}, {"is_active": False}])
@@ -125,3 +126,33 @@ def test_request_auditing_records_login_outcomes_not_bodies(admin_workspace, mon
     assert events[-1]["actor_id"] == w.owner.id
     assert all("secret" not in event["action"] for event in events)
     assert "password" not in json.dumps(events, default=str)
+
+
+def test_audit_keeps_created_chat_identity_and_stream_failure(admin_workspace, monkeypatch):
+    from app.services import audit_service
+    from app.core.dependencies import get_chat_service
+    from app.main import app
+    from unittest.mock import Mock
+    w = admin_workspace
+    events = []
+    monkeypatch.setattr(audit_service, "write_request_audit", events.append)
+    response = w.client.post("/chats", headers=w.user_headers, json={"title": "Audited chat"})
+    assert response.status_code == 200
+    assert str(events[-1]["resource_id"]) == response.json()["id"]
+    service = Mock()
+    service.stream_rag_message.side_effect = RuntimeError("private provider failure")
+    app.dependency_overrides[get_chat_service] = lambda: service
+    response = w.client.post(f"/chats/{w.chat.id}/questions/stream", headers=w.user_headers,
+        json={"content": "private-question-text"})
+    assert response.status_code == 200
+    assert events[-1]["outcome"] == "failure"
+    assert "private-question-text" not in json.dumps(events, default=str)
+    assert "private provider failure" not in json.dumps(events, default=str)
+
+
+def test_noop_role_change_is_still_audited(admin_workspace, db_session):
+    w = admin_workspace
+    assert w.client.patch(f"/admin/users/{w.owner.id}", headers=w.headers,
+        json={"role": "user"}).status_code == 200
+    event = db_session.query(AuditEvent).filter_by(action="admin.user.update").one()
+    assert event.details == {"unchanged": True}

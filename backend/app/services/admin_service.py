@@ -55,6 +55,7 @@ def update_user(db, actor_id, user_id, payload):
         from datetime import datetime, timezone
         RefreshTokenRepository(db).revoke_all_for_user(user.id, datetime.now(timezone.utc))
     else:
+        record_audit(db, actor_id, "admin.user.update", user.id, user.id, {"unchanged": True})
         db.commit()
     db.refresh(user)
     return user

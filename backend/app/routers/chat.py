@@ -65,15 +65,19 @@ def list_chats(
 
 @router.post("", response_model=ChatRead)
 def create_chat(
+    request: Request,
     payload: ChatCreate,
     current_user: Annotated[User, Depends(get_current_user)],
     chat_service: Annotated[ChatService, Depends(get_chat_service)],
 ):
     try:
-        return chat_service.create_chat(
+        chat = chat_service.create_chat(
             user_id=current_user.id,
             title=payload.title,
         )
+        request.state.audit_resource_id = chat.id
+        request.state.target_user_id = current_user.id
+        return chat
     except ValueError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

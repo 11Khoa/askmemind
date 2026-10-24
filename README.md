@@ -57,6 +57,7 @@ The project focuses on the parts of RAG that usually decide whether it works out
 
 **Platform**
 - JWT authentication, size and signature-checked PDF uploads.
+- User/admin roles, admin-only deletion, and an audited administration API for users, documents and conversations.
 - Asynchronous document processing with Celery and Redis; document status is pushed to the browser in real time via Redis pub/sub and SSE.
 - Chat history with persisted citation metadata.
 - Delete conversations or documents, including PDF/chunk/vector cleanup. Inspect source passages and authenticated original PDFs.
@@ -340,6 +341,7 @@ Checklist:
 ## Security
 
 - Passwords are hashed with a modern adaptive algorithm; sessions use short-lived JWTs.
+- Public sign-up always creates a `user`; only administrators can create accounts with selected roles. Existing accounts remain users until explicitly promoted. See [RBAC deployment and administrator bootstrap](backend/docs/rbac_and_admin.md).
 - Browser login returns an access token in JSON and a persistent, host-only HttpOnly refresh cookie. Login/refresh/logout require a trusted Origin and `X-CSRF-Protection: 1`. Refresh tokens are stored as SHA-256 digests, rotated once per use with absolute session expiry, and revoked on logout. Reuse revokes all refresh sessions for that account. Optional JSON-token endpoints are isolated from browser cookie authentication.
 - Protected requests check a Redis access-token blacklist. Redis outages return `503`; blacklist keys expire with the JWT. Password resets increment a DB token version to invalidate every existing access token and revoke all refresh tokens.
 - Password recovery uses expiring, single-use tokens delivered over SMTP by Celery, with generic responses and Redis rate limits. Configure `PASSWORD_RESET_URL` and SMTP settings in both API and worker environments.

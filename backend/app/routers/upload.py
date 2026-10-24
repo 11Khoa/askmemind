@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, status, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, status, UploadFile
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
@@ -65,6 +65,7 @@ def _read_validated_pdf(
     dependencies=[Depends(limit_uploads)],
 )
 def upload_document(
+    request: Request,
     file: Annotated[UploadFile, File()],
     current_user: Annotated[User, Depends(get_current_user)],
     document_service: Annotated[DocumentService, Depends(get_document_service)],
@@ -111,6 +112,8 @@ def upload_document(
             detail="Could not save uploaded document",
         ) from error
 
+    request.state.audit_resource_id = document.id
+    request.state.target_user_id = current_user.id
     try:
         enqueue_document(document, document_service, get_request_id())
     except DocumentQueueUnavailable as error:
