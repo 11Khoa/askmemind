@@ -2,7 +2,19 @@ export const en = {
   brand: {
     name: 'AskMeMind',
   },
+  sources: {
+    viewPassage: 'View passage and PDF', loading: 'Loading source…',
+    unavailable: 'This source is unavailable. It may have been deleted.',
+    openPdf: 'Open PDF at page {{page}}', pdfPreview: 'Source PDF preview',
+  },
+  deletion: {
+    title: 'Delete {{name}}?',
+    document: 'The PDF, extracted passages and search vectors will be permanently removed. Existing chat answers remain in history.',
+    chat: 'This conversation and all its messages will be permanently removed.',
+    confirm: 'Delete permanently', cancel: 'Cancel', working: 'Deleting…',
+  },
   common: {
+    close: 'Close',
     dismiss: 'Dismiss',
     genericError: 'Something went wrong',
     closeNavigation: 'Close navigation',
@@ -66,6 +78,7 @@ export const en = {
     composerHint: 'Enter to send - Shift + Enter for a new line',
   },
   chat: {
+    deleteNamed: 'Delete conversation {{title}}',
     conversations: 'Conversations',
     emptyNavigation: 'Your conversations will appear here.',
     untitledConversation: 'Untitled conversation',
@@ -103,6 +116,7 @@ export const en = {
     showDocuments: 'Show documents',
   },
   documents: {
+    deleteNamed: 'Delete document {{filename}}',
     knowledgeBase: 'Knowledge base',
     title: 'Documents',
     close: 'Close documents',
@@ -128,6 +142,7 @@ export const en = {
     retryTitle: 'Retry processing {{filename}}',
     retrying: 'Retrying...',
     status: {
+      deleting: 'Deletion pending — retry delete',
       uploaded: 'Uploaded',
       processing: 'Processing',
       ready: 'Ready',

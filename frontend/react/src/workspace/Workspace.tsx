@@ -6,12 +6,15 @@ import { api, ApiError, isAbortError } from '../lib/api'
 import { MAX_FILE_SIZE_MB, MAX_FILE_SIZE_BYTES } from "../lib/constants";
 import type {
   Chat,
+  Citation,
   ChatMessage,
   Document,
   DocumentStatusEvent,
   User,
 } from '../lib/types'
 import { ConversationHeader } from './components/ConversationHeader'
+import { ActionDialog } from './components/ActionDialog'
+import { SourceViewer } from './components/SourceViewer'
 import { Composer } from './components/Composer'
 import { DocumentsPanel } from './components/DocumentsPanel'
 import { MessageList } from './components/MessageList'
@@ -64,6 +67,11 @@ export function Workspace({ onLogout }: WorkspaceProps) {
   const [documentsOpen, setDocumentsOpen] = useState(true)
   const [citationOpen, setCitationOpen] = useState<string | null>(null)
   const [newChatOpen, setNewChatOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<{ kind: 'chat' | 'document'; id: string; name: string } | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+  const [viewSource, setViewSource] = useState<Citation | null>(null)
+
 
   const handleError = useCallback((caught: unknown) => {
     if (caught instanceof ApiError && caught.status === 401) {
@@ -400,6 +408,34 @@ export function Workspace({ onLogout }: WorkspaceProps) {
     )
   }
 
+  async function confirmDelete() {
+    if (!deleteTarget || deleting) return
+    setDeleting(true)
+    setDeleteError('')
+    try {
+      if (deleteTarget.kind === 'chat') {
+        await api.deleteChat(deleteTarget.id)
+        setChats((current) => current.filter((chat) => chat.id !== deleteTarget.id))
+        if (selectedChatId === deleteTarget.id) { setSelectedChatId(null); setMessages([]) }
+      } else {
+        await api.deleteDocument(deleteTarget.id)
+        setDocuments((current) => current.filter((document) => document.id !== deleteTarget.id))
+        documentEventsRef.current.delete(deleteTarget.id)
+        if (selectedDocumentId === deleteTarget.id) setSelectedDocumentId(null)
+        // Remove cached source material immediately, including before resync.
+        setMessages((current) => current.map((message) => ({ ...message,
+          message_metadata: message.message_metadata ? {
+            ...message.message_metadata, context: '',
+            citations: message.message_metadata.citations?.filter((citation) => citation.document_id !== deleteTarget.id),
+          } : null,
+        })))
+      }
+      setDeleteTarget(null)
+    } catch (caught) {
+      setDeleteError(caught instanceof Error ? caught.message : t('common.genericError'))
+    } finally { setDeleting(false) }
+  }
+
   const currentChat = chats.find((chat) => chat.id === selectedChatId)
   const selectedDocument = documents.find(
     (document) => document.id === selectedDocumentId,
@@ -424,6 +460,8 @@ export function Workspace({ onLogout }: WorkspaceProps) {
         onNewChat={() => void setNewChatOpen(true)}
         onSelectChat={selectChat}
         onLogout={onLogout}
+        busy={sending || deleting}
+        onDeleteChat={(chat) => { setDeleteError(''); setDeleteTarget({ kind: 'chat', id: chat.id, name: chat.title || t('chat.untitledConversation') }) }}
       />
 
       <section className="conversation">
@@ -446,6 +484,7 @@ export function Workspace({ onLogout }: WorkspaceProps) {
           expandedCitation={citationOpen}
           onSuggestion={setQuestion}
           onToggleCitation={setCitationOpen}
+          onViewSource={setViewSource}
         />
         <div className='conversation-last'>
           <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} />
@@ -469,12 +508,26 @@ export function Workspace({ onLogout }: WorkspaceProps) {
         open={documentsOpen}
         uploading={uploading}
         retryingIds={retryingIds}
+        busy={sending || deleting}
+        onDelete={(document) => { setDeleteError(''); setDeleteTarget({ kind: 'document', id: document.id, name: document.original_filename }) }}
         onClose={() => setDocumentsOpen(false)}
         onSelectDocument={setSelectedDocumentId}
         onUpload={(file) => void uploadDocument(file)}
         onRetry={(documentId) => void retryDocument(documentId)}
       />
 
+      {deleteTarget && <ActionDialog title={t('deletion.title', { name: deleteTarget.name })}
+        busy={deleting} onClose={() => setDeleteTarget(null)}>
+        <p>{t(`deletion.${deleteTarget.kind}`)}</p>
+        {deleteError && <p role="alert">{deleteError}</p>}
+        <footer><button disabled={deleting} onClick={() => setDeleteTarget(null)}>{t('deletion.cancel')}</button>
+          <button className="danger-button" disabled={deleting} onClick={() => void confirmDelete()}>
+            {t(deleting ? 'deletion.working' : 'deletion.confirm')}
+          </button></footer>
+      </ActionDialog>}
+      {viewSource && <SourceViewer citation={viewSource}
+        filename={documents.find((document) => document.id === viewSource.document_id)?.original_filename || t('chat.sourceFallback')}
+        onClose={() => setViewSource(null)} />}
       <NewChatModal
         open={newChatOpen}
         onClose={() => setNewChatOpen(false)}

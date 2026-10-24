@@ -1,5 +1,5 @@
 import {
-  ChevronRight, FileText, Library, LoaderCircle, RotateCw, Search, Upload, X,
+  ChevronRight, FileText, Library, LoaderCircle, RotateCw, Search, Upload, X, Trash2,
 } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
@@ -18,6 +18,8 @@ type DocumentsPanelProps = {
   onSelectDocument: (documentId: string | null) => void
   onUpload: (file: File) => void
   onRetry: (documentId: string) => void
+  onDelete: (document: Document) => void
+  busy: boolean
 }
 
 function formatBytes(bytes: number) {
@@ -37,6 +39,8 @@ export function DocumentsPanel({
   onSelectDocument,
   onUpload,
   onRetry,
+  onDelete,
+  busy,
 }: DocumentsPanelProps) {
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
@@ -126,6 +130,9 @@ export function DocumentsPanel({
                   {retrying ? t('documents.retrying') : t('documents.retry')}
                 </button>
               )}
+              <button className="icon-button delete-action" disabled={busy || retrying}
+                aria-label={t('documents.deleteNamed', { filename: document.original_filename })}
+                onClick={() => onDelete(document)}><Trash2 size={15} /></button>
             </div>
           )
         })}

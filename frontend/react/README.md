@@ -142,3 +142,17 @@ and recovery payloads. Playwright uses mocked backend responses that set real
 HttpOnly cookies in Chromium to cover reload/reopening, multi-tab rotation,
 logout, blocked storage and recovery on desktop/mobile. These tests do not
 validate the backend's cookie/CSRF implementation or send real reset emails.
+# Document management and source inspection
+
+This client supports document/conversation deletion with confirmation, source
+passages, and authenticated PDFs opened at their cited page. It requires the
+matching `feature/backend` API changes: `DELETE /documents/{id}`, `DELETE
+/chats/{id}`, `GET /documents/{id}/chunks/{chunk_id}`, and `GET
+/documents/{id}/file`. Deploy that backend first.
+
+Deleting a document removes its original PDF, chunks/vectors and cached source
+excerpts; saved answer text remains until its conversation is deleted. A cleanup
+failure can leave a `deleting` document: use its delete action again to finish.
+The source dialog uses a temporary blob URL, never a token in the URL. Native
+PDF page navigation depends on browser support; an open-in-new-tab link is also
+provided. Follow-up context is loaded on the server without extra client payloads.

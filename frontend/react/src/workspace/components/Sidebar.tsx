@@ -1,5 +1,5 @@
 import {
-  BookOpenText, LogOut, MessageSquare, Plus, X,
+  BookOpenText, LogOut, MessageSquare, Plus, X, Trash2,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
@@ -14,6 +14,8 @@ type SidebarProps = {
   onNewChat: () => void
   onSelectChat: (chatId: string) => void
   onLogout: () => void
+  onDeleteChat: (chat: Chat) => void
+  busy: boolean
 }
 
 function formatDate(value: string, locale: string) {
@@ -32,6 +34,8 @@ export function Sidebar({
   onNewChat,
   onSelectChat,
   onLogout,
+  onDeleteChat,
+  busy,
 }: SidebarProps) {
   const { i18n, t } = useTranslation()
 
@@ -58,13 +62,15 @@ export function Sidebar({
             <span>{t('chat.emptyNavigation')}</span>
           </div>
         ) : chats.map((chat) => (
-          <button key={chat.id}
+          <div key={chat.id} className="chat-navigation-row"><button
             className={`chat-link ${selectedChatId === chat.id ? 'is-active' : ''}`}
             onClick={() => onSelectChat(chat.id)}>
             <MessageSquare size={16} />
             <span>{chat.title || t('chat.untitledConversation')}</span>
             <time>{formatDate(chat.updated_at, i18n.language)}</time>
-          </button>
+          </button><button className="icon-button delete-action" disabled={busy}
+            aria-label={t('chat.deleteNamed', { title: chat.title || t('chat.untitledConversation') })}
+            onClick={() => onDeleteChat(chat)}><Trash2 size={15} /></button></div>
         ))}
       </nav>
 

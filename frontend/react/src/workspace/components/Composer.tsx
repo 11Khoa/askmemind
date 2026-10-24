@@ -40,7 +40,7 @@ export function Composer({
 
   return (
     <form className="composer" onSubmit={submit}>
-      <textarea ref={inputRef} rows={1} value={question}
+      <textarea ref={inputRef} rows={1} value={question} maxLength={8000}
         onChange={(event) => onQuestionChange(event.target.value)}
         onKeyDown={handleKeyDown}
         placeholder={documentsCount

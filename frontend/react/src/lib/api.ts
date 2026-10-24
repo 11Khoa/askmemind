@@ -104,6 +104,25 @@ export const api = {
     return request<Document[]>('/documents', {}, true)
   },
 
+  deleteDocument(documentId: string) {
+    return request<void>(`/documents/${documentId}`, { method: 'DELETE' }, true)
+  },
+
+  sourcePassage(documentId: string, chunkId: string) {
+    return request<{ content: string; page_number: number | null }>(
+      `/documents/${documentId}/chunks/${chunkId}`, {}, true,
+    )
+  },
+
+  async documentPdf(documentId: string, signal: AbortSignal) {
+    const response = await authenticatedResponse(`/documents/${documentId}/file`, { signal })
+    return response.blob()
+  },
+
+  deleteChat(chatId: string) {
+    return request<void>(`/chats/${chatId}`, { method: 'DELETE' }, true)
+  },
+
   getDocument(documentId: string) {
     return request<Document>(`/documents/${documentId}`, {}, true)
   },
