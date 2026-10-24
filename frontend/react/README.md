@@ -57,6 +57,20 @@ npm run preview
 
 The production build is written to `dist/`.
 
+## Live document updates
+
+Document SSE reconnects automatically after network errors, normal proxy closure
+or a 45-second heartbeat silence, with jittered backoff capped at 30 seconds. It
+rotates at four minutes to recheck the session through the authenticated client.
+Each connection reconciles document metadata; processing documents also retain
+their polling fallback. Transient background failures show a quiet reconnecting
+label instead of a global Network error. Leaving the workspace cancels the stream
+and pending retries. Question generation is never automatically resubmitted.
+
+Deploy the matching `feature/backend` stream lifecycle changes too. For VPS
+reverse proxies, see `backend/docs/sse_recovery.md` and the updated Nginx example
+on that branch; code changes do not automatically reload your VPS Nginx config.
+
 ## Vercel deployment
 
 Set the Vercel project's Root Directory to `frontend/react` and select the

@@ -116,6 +116,7 @@ export const en = {
     showDocuments: 'Show documents',
   },
   documents: {
+    reconnecting: 'Reconnecting live updates… Processing status is checked periodically.',
     deleteNamed: 'Delete document {{filename}}',
     knowledgeBase: 'Knowledge base',
     title: 'Documents',

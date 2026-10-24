@@ -2,6 +2,8 @@ import { BookOpenText, LoaderCircle } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { isTransientConnectionError } from '../lib/documentEvents'
+import type { DocumentConnectionState } from '../lib/documentEvents'
 import { api, ApiError, isAbortError } from '../lib/api'
 import { MAX_FILE_SIZE_MB, MAX_FILE_SIZE_BYTES } from "../lib/constants";
 import type {
@@ -47,6 +49,7 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
   const { t } = useTranslation()
   const [user, setUser] = useState<User | null>(null)
   const [documents, setDocuments] = useState<Document[]>([])
+  const [documentConnection, setDocumentConnection] = useState<DocumentConnectionState>('connecting')
   const documentsRef = useRef<Document[]>([])
   const documentEventsRef = useRef(new Map<string, DocumentStatusEvent>())
   const retryingRef = useRef(new Set<string>())
@@ -156,8 +159,18 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
     }
   }, [t])
 
-  useEffect(() => api.subscribeDocumentEvents(receiveDocumentEvent, handleError),
-    [receiveDocumentEvent, handleError])
+  useEffect(() => api.subscribeDocumentEvents(receiveDocumentEvent, handleError, {
+    onState: setDocumentConnection,
+    onConnected: async (signal) => {
+      const latest = await api.listDocuments(signal)
+      if (signal.aborted) return
+      latest.forEach((document) => receiveDocumentEvent({
+        document_id: document.id, status: document.status, page_count: document.page_count,
+        error_message: document.error_message, processing_attempt_id: document.processing_attempt_id,
+        updated_at: document.updated_at,
+      }))
+    },
+  }), [receiveDocumentEvent, handleError])
 
   useEffect(() => {
     const processing = documents.filter((document) => document.status === 'processing')
@@ -179,7 +192,7 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
           updated_at: document.updated_at,
         }))
       } catch (caught) {
-        if (active) handleError(caught)
+        if (active && !isTransientConnectionError(caught)) handleError(caught)
       } finally {
         polling = false
       }
@@ -509,6 +522,7 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
         open={documentsOpen}
         uploading={uploading}
         retryingIds={retryingIds}
+        connectionState={documentConnection}
         canDelete={user?.role === 'admin'}
         busy={sending || deleting}
         onDelete={(document) => { setDeleteError(''); setDeleteTarget({ kind: 'document', id: document.id, name: document.original_filename }) }}

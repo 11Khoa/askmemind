@@ -5,6 +5,7 @@ import { useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import type { DocumentConnectionState } from '../../lib/documentEvents'
 import type { Document } from '../../lib/types'
 import { MAX_FILE_SIZE_MB } from "../../lib/constants";
 
@@ -20,6 +21,7 @@ type DocumentsPanelProps = {
   onRetry: (documentId: string) => void
   onDelete: (document: Document) => void
   busy: boolean
+  connectionState: DocumentConnectionState
   canDelete: boolean
 }
 
@@ -43,6 +45,7 @@ export function DocumentsPanel({
   onDelete,
   busy,
   canDelete,
+  connectionState,
 }: DocumentsPanelProps) {
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
@@ -149,6 +152,7 @@ export function DocumentsPanel({
 
       <div className="documents-foot">
         <strong>{t('documents.documentsCount', { count: documents.length })}</strong>
+        {connectionState === 'reconnecting' && <span aria-live="polite">{t('documents.reconnecting')}</span>}
         <span>{t('documents.uploadLimit', {fileLimit: MAX_FILE_SIZE_MB})}</span>
       </div>
     </aside>
