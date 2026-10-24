@@ -21,7 +21,7 @@ from app.services.rag_service import RagAnswer
 
 @pytest.fixture
 def workspace(db_session, tmp_path):
-    owner = User(email="features@example.com", hashed_password="hashed")
+    owner = User(email="features@example.com", hashed_password="hashed", role="admin")
     db_session.add(owner)
     db_session.commit()
     pdf = tmp_path / "source.pdf"

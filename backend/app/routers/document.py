@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from starlette.responses import StreamingResponse, FileResponse, Response
 
+from app.core.dependencies import require_admin
 from app.core.dependencies import get_current_user, get_document_service
 from app.core.rate_limits import limit_uploads
 from app.schemas.document import DocumentRead, SourcePassageRead
@@ -23,7 +24,7 @@ router = APIRouter(
 @router.delete("/{document_id}", status_code=204)
 def delete_document(
     document_id: uuid.UUID,
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(require_admin)],
     service: Annotated[DocumentService, Depends(get_document_service)],
 ):
     try:

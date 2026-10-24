@@ -161,6 +161,13 @@ def get_file_storage_service() -> FileStorageService:
     return FileStorageService(upload_dir=str(settings.resolved_upload_dir))
 
 
+def require_admin(user: Annotated[User, Depends(get_current_user)]) -> User:
+    # Read role from the current DB-backed user, never a client/JWT role claim.
+    if getattr(user, "role", None) != "admin":
+        raise HTTPException(status_code=403, detail="Administrator permission required")
+    return user
+
+
 def build_document_processing_service(db: Session) -> DocumentProcessingService:
     chunk_repository = ChunkRepository(db=db)
     document_repository = DocumentRepository(db=db)

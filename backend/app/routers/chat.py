@@ -7,6 +7,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse, Response
 
+from app.core.dependencies import require_admin
 from app.core.dependencies import get_chat_service, get_current_user
 from app.core.logging import get_request_id
 from app.core.rate_limits import limit_questions
@@ -36,7 +37,7 @@ def _sse_event(event: str, data: dict[str, Any]) -> str:
 @router.delete("/{chat_id}", status_code=204)
 def delete_chat(
     chat_id: uuid.UUID,
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(require_admin)],
     service: Annotated[ChatService, Depends(get_chat_service)],
 ):
     try:

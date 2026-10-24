@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
@@ -9,6 +10,7 @@ def normalize_email(value: str) -> str:
 
 
 class UserCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     email: EmailStr
     password: str = Field(
         min_length=8,
@@ -22,6 +24,7 @@ class UserCreate(BaseModel):
 
 
 class UserRead(BaseModel):
+    role: Literal["user", "admin"] = "user"
     id: uuid.UUID
     email: EmailStr
     is_active: bool
