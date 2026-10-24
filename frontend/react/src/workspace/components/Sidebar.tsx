@@ -16,6 +16,7 @@ type SidebarProps = {
   onLogout: () => void
   onDeleteChat: (chat: Chat) => void
   busy: boolean
+  onAdmin: () => void
 }
 
 function formatDate(value: string, locale: string) {
@@ -36,6 +37,7 @@ export function Sidebar({
   onLogout,
   onDeleteChat,
   busy,
+  onAdmin,
 }: SidebarProps) {
   const { i18n, t } = useTranslation()
 
@@ -53,6 +55,7 @@ export function Sidebar({
       <button className="new-chat-button" onClick={onNewChat}>
         <Plus size={17} /> {t('chat.newConversation')}
       </button>
+      {user?.role === 'admin' && <button className="admin-navigation" onClick={onAdmin}>Administration</button>}
 
       <nav className="chat-navigation" aria-label={t('chat.conversations')}>
         <p className="nav-label">{t('chat.conversations')}</p>

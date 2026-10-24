@@ -23,7 +23,7 @@ import { Sidebar } from './components/Sidebar'
 import { NewChatModal } from "./components/NewChatModal";
 import type { Notice } from './types'
 
-type WorkspaceProps = { onLogout: () => void }
+type WorkspaceProps = { onLogout: () => void; onAdmin: () => void }
 
 const READY_STATUSES = new Set(['ready', 'completed'])
 const FAILED_STATUSES = new Set(['processing_failed', 'failed'])
@@ -43,7 +43,7 @@ function applyDocumentEvent(document: Document, event: DocumentStatusEvent): Doc
   }
 }
 
-export function Workspace({ onLogout }: WorkspaceProps) {
+export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
   const { t } = useTranslation()
   const [user, setUser] = useState<User | null>(null)
   const [documents, setDocuments] = useState<Document[]>([])
@@ -460,6 +460,7 @@ export function Workspace({ onLogout }: WorkspaceProps) {
         onNewChat={() => void setNewChatOpen(true)}
         onSelectChat={selectChat}
         onLogout={onLogout}
+        onAdmin={onAdmin}
         busy={sending || deleting}
         onDeleteChat={(chat) => { setDeleteError(''); setDeleteTarget({ kind: 'chat', id: chat.id, name: chat.title || t('chat.untitledConversation') }) }}
       />

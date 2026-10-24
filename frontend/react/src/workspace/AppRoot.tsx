@@ -8,6 +8,7 @@ import { ApiError, restoreSession } from '../lib/http'
 import { session } from '../lib/session'
 import { AuthView } from './AuthView'
 import { Workspace } from './Workspace'
+import { AdminPanel } from './AdminPanel'
 import './workspace.css'
 
 // Consume the fragment before rendering analytics or any third-party content.
@@ -26,6 +27,12 @@ export default function AppRoot() {
   const [resetLink, setResetLink] = useState(initialResetLink)
   const [authNotice, setAuthNotice] = useState('')
   const loggingOut = useRef(false)
+  const [view, setView] = useState(() => window.location.pathname === '/admin' ? 'admin' : 'workspace')
+
+  function navigateView(next: 'admin' | 'workspace') {
+    window.history.pushState(null, '', next === 'admin' ? '/admin' : '/')
+    setView(next)
+  }
 
   useEffect(() => {
     if (resetLink || sessionStatus !== 'restoring') return
@@ -41,6 +48,7 @@ export default function AppRoot() {
     function navigate() {
       if (window.location.href === lastUrl) return
       const link = consumeResetLink()
+      setView(window.location.pathname === '/admin' ? 'admin' : 'workspace')
       lastUrl = window.location.href
       setResetLink(link)
     }
@@ -87,8 +95,10 @@ export default function AppRoot() {
           notice={authNotice}
           onRetrySession={() => { setAuthNotice(''); session.startRestore() }}
         />
+      ) : view === 'admin' ? (
+        <AdminPanel onBack={() => navigateView('workspace')} />
       ) : (
-        <Workspace onLogout={() => { void logout() }} />
+        <Workspace onLogout={() => { void logout() }} onAdmin={() => navigateView('admin')} />
       )}
       <Analytics />
     </>

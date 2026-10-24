@@ -156,3 +156,23 @@ failure can leave a `deleting` document: use its delete action again to finish.
 The source dialog uses a temporary blob URL, never a token in the URL. Native
 PDF page navigation depends on browser support; an open-in-new-tab link is also
 provided. Follow-up context is loaded on the server without extra client payloads.
+
+## Roles and administration
+
+Ordinary users can upload/chat/read their own sources, but cannot delete resources.
+Only admins see destructive controls and the Administration navigation item.
+The `/admin` screen verifies `/auth/me` before rendering role controls and uses
+server-protected `/admin/*` endpoints. It provides paginated Users, Documents,
+Chats and Activity views, filters, role selection when creating accounts, account
+enable/disable, confirmed role changes, and inspection/deletion across owners.
+
+Role/account-state changes invalidate existing server sessions. Attempts to remove
+the last active admin display the server's refusal. No client-selected role is
+sent by public sign-up. Passwords exist only in the creation form until submission
+or close; they are not stored in browser storage or activity metadata.
+
+Deploy the backend and apply its role/audit migrations first. All existing
+accounts initially become users; bootstrap the first admin explicitly with the
+server command documented in `backend/docs/rbac_and_admin.md` on `feature/backend`.
+Configure SPA hosting to serve `index.html` for `/admin` as well as the existing
+reset-password route. No production account is automatically elevated by the UI.
