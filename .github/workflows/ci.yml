@@ -61,6 +61,18 @@ jobs:
       - name: Install dependencies
         run: pip install -r backend/requirements.txt
 
+      - name: Cache pinned OCR models
+        uses: actions/cache@v4
+        with:
+          path: backend/models/ocr
+          key: ocr-models-${{ runner.os }}-${{ hashFiles('backend/app/services/extraction/ocr_assets.py') }}
+
+      - name: Verify OCR models and real bilingual scan extraction
+        working-directory: backend
+        run: |
+          python -m app.commands.prepare_ocr_models
+          python -m app.commands.check_pdf_ocr
+
       - name: Run database migrations
         working-directory: backend
         run: alembic upgrade head
