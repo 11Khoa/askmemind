@@ -20,6 +20,16 @@ from app.services.extraction.ocr_worker import recognize_page
 from app.services.chunk_service import ChunkingService
 
 
+def test_smoke_matching_ignores_box_whitespace_but_preserves_vietnamese_accents():
+    from app.commands.check_pdf_ocr import normalize_ocr_text
+    import unicodedata
+
+    text = unicodedata.normalize("NFD", "Tiếng\nViệt. Hợp   đồng thanh\ntoán.")
+    normalized = normalize_ocr_text(text)
+    assert all(keyword in normalized for keyword in ("tiếng việt", "hợp đồng", "thanh toán"))
+    assert "tiếng việt" not in normalize_ocr_text("Tieng Viet")
+
+
 def make_pdf(path, native=False, scans=1, header=False):
     with fitz.open() as document:
         if native:

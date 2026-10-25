@@ -14,6 +14,12 @@ from app.services.chunk_service import ChunkingService
 from app.services.extraction.pdf_extraction_service import PdfExtractionService
 
 
+def normalize_ocr_text(text: str) -> str:
+    # OCR boxes may split a phrase across lines. Whitespace is not a recognition
+    # error; accents and letters still have to match exactly.
+    return " ".join(unicodedata.normalize("NFC", text).lower().split())
+
+
 def check_ocr():
     started = monotonic()
     with tempfile.TemporaryDirectory(prefix="askmemind-ocr-") as directory:
@@ -42,9 +48,15 @@ def check_ocr():
             ("scanned document", "payment contract", "2026"),
             ("tiếng việt", "hợp đồng", "thanh toán"),
         )):
-            text = unicodedata.normalize("NFC", unit.text).lower()
+            text = normalize_ocr_text(unit.text)
             hits = sum(keyword in text for keyword in keywords)
-            assert hits >= 2, f"OCR quality check failed on page {unit.page_number}: {hits}/3 keywords"
+            # Only this command's synthetic fixture is printed on failure, never
+            # text from user-uploaded PDFs in the ingestion pipeline.
+            assert hits >= 2, (
+                f"OCR quality check failed on page {unit.page_number}: {hits}/3 keywords; "
+                f"missing={[keyword for keyword in keywords if keyword not in text]!r}; "
+                f"synthetic_ocr_text={unit.text!r}"
+            )
         chunks = ChunkingService().chunk_source(source)
         assert {chunk.page_number for chunk in chunks} == {1, 2, 3}
     print(f"Real OCR smoke passed: English, Vietnamese, mixed PDF and page metadata ({monotonic() - started:.2f}s).")
