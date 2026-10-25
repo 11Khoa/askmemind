@@ -168,6 +168,40 @@ def test_model_checksum_rejects_missing_and_corrupt_files(tmp_path):
     verify_model(path, digest)
 
 
+def test_real_onnx_engine_initializes_and_recognizes_without_downloads(tmp_path, monkeypatch):
+    """Regression for OmegaConf rejecting InferenceSession objects in params.
+
+    Use verified models bundled with the pinned wheel for an offline English
+    check. The separate bilingual smoke command tests the production Latin model.
+    """
+    import rapidocr
+    from rapidocr.utils import DownloadFile
+    from app.services.extraction import ocr_worker
+    from app.services.extraction.ocr_assets import MODELS
+
+    directory = Path(rapidocr.__file__).parent / "models"
+    models = {role: directory / Path(relative).name
+              for role, (relative, _) in MODELS.items() if role != "rec"}
+    for role, path in models.items():
+        verify_model(path, MODELS[role][1])
+    models["rec"] = directory / "ch_PP-OCRv4_rec_infer.onnx"
+    verify_model(models["rec"], "48fc40f24f6d2a207a2b1091d3437eb3cc3eb6b676dc3ef9c37384005483683b")
+    monkeypatch.setattr(ocr_worker, "verified_models", lambda _: models)
+    monkeypatch.setattr(DownloadFile, "run", Mock(side_effect=AssertionError("Unexpected model download")))
+    engine = ocr_worker.create_engine({"model_dir": str(directory), "threads": 1})
+    path = tmp_path / "real-scan.pdf"
+    with fitz.open() as original, fitz.open() as scanned:
+        page = original.new_page(width=595, height=300)
+        page.insert_text((40, 80), "Payment contract 2026", fontsize=24)
+        scanned.new_page(width=595, height=300).insert_image(page.rect, pixmap=page.get_pixmap(dpi=150))
+        scanned.save(path)
+    result = recognize_page(engine, {"file_path": str(path), "dpi": 150,
+                            "max_pixels": 2_000_000, "min_confidence": 0.6},
+                            {"page_index": 0, "max_characters": 1000})
+    assert "contract" in result["text"].lower()
+    assert "2026" in result["text"]
+
+
 def session_with_child(tmp_path, monkeypatch, program):
     session = OCRSession(tmp_path / "input.pdf", settings, monotonic() + 5)
     process = subprocess.Popen([sys.executable, "-u", "-c", program],

@@ -33,6 +33,8 @@ before running it. Mount the model directory read-only at runtime. Run the smoke
 test in the built image before rolling out to workers. Runtime inference uses
 verified local ONNX sessions and an embedded dictionary; it never auto-downloads
 missing models or silently falls back to a Chinese recognizer.
+The Linux OpenCV wheel's bundled DejaVu Sans font is passed explicitly to
+RapidOCR, preventing its visualizer from downloading fonts during inference.
 
 ## Processing and limits
 

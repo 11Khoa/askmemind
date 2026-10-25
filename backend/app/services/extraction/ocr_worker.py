@@ -35,26 +35,41 @@ def create_engine(options):
     from rapidocr import RapidOCR
     from rapidocr.utils.typings import LangRec, OCRVersion
 
+    # RapidOCR constructs a visualizer even for text-only output. Supply the
+    # Latin-capable font bundled with the pinned Linux OpenCV wheel so it does
+    # not download a visualization font during inference.
+    font_path = Path(cv2.__file__).parent / "qt/fonts/DejaVuSans.ttf"
+    if not font_path.is_file():
+        raise ValueError("OCR font unavailable. Install the pinned Linux opencv-python wheel.")
     cv2.setNumThreads(options["threads"])
     ort.disable_telemetry_events()
     session_options = ort.SessionOptions()
     session_options.intra_op_num_threads = options["threads"]
     session_options.inter_op_num_threads = 1
     session_options.enable_cpu_mem_arena = False
-    sessions = {
-        role: ort.InferenceSession(str(path), sess_options=session_options,
-                                   providers=["CPUExecutionProvider"])
-        for role, path in paths.items()
-    }
+    recognition_session = ort.InferenceSession(
+        str(paths["rec"]), sess_options=session_options,
+        providers=["CPUExecutionProvider"],
+    )
     # Reject incompatible recognizers instead of letting RapidOCR download a dict.
-    if "character" not in sessions["rec"].get_modelmeta().custom_metadata_map:
+    if "character" not in recognition_session.get_modelmeta().custom_metadata_map:
         raise ValueError("OCR recognizer is missing its embedded character dictionary")
+    del recognition_session
+    # OmegaConf only accepts primitive configuration values. InferenceSession
+    # objects in *.session fail before RapidOCR can initialize its engines.
     return RapidOCR(params={
         "Global.log_level": "critical",
         "Global.max_side_len": 4096,
-        "Det.session": sessions["det"],
-        "Cls.session": sessions["cls"],
-        "Rec.session": sessions["rec"],
+        "Global.font_path": str(font_path),
+        "Det.model_path": str(paths["det"]),
+        "Cls.model_path": str(paths["cls"]),
+        "Rec.model_path": str(paths["rec"]),
+        "EngineConfig.onnxruntime.intra_op_num_threads": options["threads"],
+        "EngineConfig.onnxruntime.inter_op_num_threads": 1,
+        "EngineConfig.onnxruntime.enable_cpu_mem_arena": False,
+        "EngineConfig.onnxruntime.use_cuda": False,
+        "EngineConfig.onnxruntime.use_dml": False,
+        "EngineConfig.onnxruntime.use_cann": False,
         "Rec.lang_type": LangRec.LATIN,
         "Rec.ocr_version": OCRVersion.PPOCRV5,
         "Rec.rec_batch_num": 1,
