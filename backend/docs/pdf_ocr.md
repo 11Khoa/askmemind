@@ -1,9 +1,11 @@
 # Scanned PDF ingestion
 
 PDF extraction uses RapidOCR 3.4.1 and CPU ONNX Runtime 1.23.2. It runs locally:
-document images/text are not sent to an OCR service. The recognizer is the Latin
-PP-OCRv5 mobile model (Vietnamese and English), with PP-OCRv4 detection and
-180-degree text orientation classification. No Tesseract executable is required.
+document images/text are not sent to an OCR service. RapidOCR supplies PP-OCRv4
+line detection and 180-degree orientation classification. VietOCR vgg_seq2seq
+ONNX encoder/decoder models recognize Vietnamese and English. No PyTorch or
+Tesseract executable is required. The originally selected stock Latin CTC model
+omits Vietnamese tone letters and is no longer used.
 
 ## Deployment
 
@@ -14,16 +16,19 @@ python -m app.commands.prepare_ocr_models
 python -m app.commands.check_pdf_ocr
 ```
 
-The preparation command requires outbound HTTPS to `www.modelscope.cn` and any
-artifact redirect hosts the upstream service uses. Preserve TLS verification.
+The preparation command requires outbound HTTPS to `github.com` and GitHub
+release asset hosts for recognition models. Detector/classifier fallback
+downloads use `www.modelscope.cn` and its artifact CDN. Preserve TLS verification.
 It copies matching detector/classifier models from the RapidOCR wheel, downloads
-the Latin recognizer, verifies all three SHA-256 digests, and atomically installs
+the VietOCR encoder/decoder/vocabulary, verifies all five SHA-256 digests, and atomically installs
 them. Existing mismatched files cause a failure; do not replace the expected
 digests to accommodate corrupted downloads. Remove the bad artifact and prepare
 again. The checksums and versioned URLs come from the upstream
-[v3.4.1 model manifest](https://github.com/RapidAI/RapidOCR/blob/v3.4.1/python/rapidocr/default_models.yaml).
+[v3.4.1 model manifest](https://github.com/RapidAI/RapidOCR/blob/v3.4.1/python/rapidocr/default_models.yaml)
+and the published [VietOCR ONNX ocr-v1 release asset digests](https://github.com/duchoa1297/vietocr-onnx/releases/tag/ocr-v1).
 Model binaries are ignored by Git. Retain upstream license notices when
-redistributing models; see the RapidOCR/PaddleOCR model sources.
+redistributing models; see RapidOCR, PaddleOCR and
+[pbcquoc/VietOCR](https://github.com/pbcquoc/vietocr) (Apache-2.0).
 
 The Dockerfile provisions the same models under `/opt/askmemind/ocr-models` during
 the build and installs OpenCV's shared-library prerequisites. Local development
@@ -31,10 +36,16 @@ defaults to `backend/models/ocr/`. Set `PDF_OCR_MODEL_DIR` to use a different
 directory and pass `--output` to the preparation command, or export that variable
 before running it. Mount the model directory read-only at runtime. Run the smoke
 test in the built image before rolling out to workers. Runtime inference uses
-verified local ONNX sessions and an embedded dictionary; it never auto-downloads
+verified local ONNX sessions and a checked Vietnamese vocabulary; it never auto-downloads
 missing models or silently falls back to a Chinese recognizer.
-The Linux OpenCV wheel's bundled DejaVu Sans font is passed explicitly to
-RapidOCR, preventing its visualizer from downloading fonts during inference.
+Only RapidOCR's detection/classification components are instantiated. No
+visualizer or stock recognizer is loaded, so inference never downloads a font.
+Recognition assets total about 85 MiB on disk. A synthetic two-scan-page run on
+the development cloud with one thread, 150 DPI and a two-million-pixel cap took
+about 4.2 seconds including initialization and peaked at roughly 775 MiB RSS in
+the OCR subprocess; this is an observation, not a VPS
+capacity guarantee. Use one Celery worker and one OCR thread on a small VPS,
+and measure peak memory with real documents before rollout.
 
 ## Processing and limits
 
@@ -56,7 +67,10 @@ RapidOCR, preventing its visualizer from downloading fonts during inference.
   recycles each worker after 20 tasks.
 - The raster is RGB/BGR, without alpha, downscaled to stay under the pixel cap.
   Its longest side is capped at 4096 pixels, including extreme-aspect-ratio pages.
-  Recognition uses a batch size of one and CPU-only sessions. Limits bound OCR
+  Recognition processes one detected line at a time using CPU-only sessions.
+  Autoregressive decoding is capped at the pinned vocabulary's sequence limit;
+  a line without an end token is rejected rather than returned as truncated text.
+  Limits bound OCR
   work; set container memory/CPU limits too (pixels are not a hard RSS limit).
 
 | Variable | Default | Purpose |

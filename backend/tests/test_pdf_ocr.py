@@ -181,22 +181,16 @@ def test_model_checksum_rejects_missing_and_corrupt_files(tmp_path):
 def test_real_onnx_engine_initializes_and_recognizes_without_downloads(tmp_path, monkeypatch):
     """Regression for OmegaConf rejecting InferenceSession objects in params.
 
-    Use verified models bundled with the pinned wheel for an offline English
-    check. The separate bilingual smoke command tests the production Latin model.
+    Exercise the same provisioned recognition models used in production.
+    The separate mandatory CI smoke command also checks Vietnamese diacritics.
     """
-    import rapidocr
     from rapidocr.utils import DownloadFile
     from app.services.extraction import ocr_worker
     from app.services.extraction.ocr_assets import MODELS
 
-    directory = Path(rapidocr.__file__).parent / "models"
-    models = {role: directory / Path(relative).name
-              for role, (relative, _) in MODELS.items() if role != "rec"}
-    for role, path in models.items():
-        verify_model(path, MODELS[role][1])
-    models["rec"] = directory / "ch_PP-OCRv4_rec_infer.onnx"
-    verify_model(models["rec"], "48fc40f24f6d2a207a2b1091d3437eb3cc3eb6b676dc3ef9c37384005483683b")
-    monkeypatch.setattr(ocr_worker, "verified_models", lambda _: models)
+    directory = settings.pdf_ocr_model_dir
+    if not all((directory / Path(relative).name).is_file() for relative, _ in MODELS.values()):
+        pytest.skip("Run python -m app.commands.prepare_ocr_models for the real-model integration test")
     monkeypatch.setattr(DownloadFile, "run", Mock(side_effect=AssertionError("Unexpected model download")))
     engine = ocr_worker.create_engine({"model_dir": str(directory), "threads": 1})
     path = tmp_path / "real-scan.pdf"
@@ -210,6 +204,38 @@ def test_real_onnx_engine_initializes_and_recognizes_without_downloads(tmp_path,
                             {"page_index": 0, "max_characters": 1000})
     assert "contract" in result["text"].lower()
     assert "2026" in result["text"]
+
+
+def test_latin_only_vocabulary_cannot_be_used_for_vietnamese():
+    from app.services.extraction.vietnamese_ocr import validate_vocabulary
+    with pytest.raises(ValueError, match="Vietnamese tone marks"):
+        validate_vocabulary({"vocab": "abcdefghijklmnopqrstuvwxyzàáđêô"})
+
+
+def test_thin_images_do_not_trigger_detector_upscaling():
+    from app.services.extraction.vietnamese_ocr import VietnameseOCREngine
+    engine = VietnameseOCREngine.__new__(VietnameseOCREngine)
+    engine.detector = Mock(side_effect=AssertionError("Thin page must not be upscaled"))
+    assert engine(np.full((1, 4096, 3), 255, dtype=np.uint8)).txts == ()
+
+
+def test_autoregressive_decoder_requires_eos_and_preserves_accented_tokens():
+    from app.services.extraction.vietnamese_ocr import VietnameseOCREngine
+    engine = VietnameseOCREngine.__new__(VietnameseOCREngine)
+    engine.metadata = {"image_height": 32, "image_min_width": 32,
+                       "image_max_width": 512, "max_seq_length": 3, "sos": 1, "eos": 2}
+    engine.characters = {4: "ế"}
+    engine.encoder = Mock()
+    engine.encoder.run.return_value = (np.zeros((1, 1)), np.zeros((1, 1)))
+    char = np.array([[-10., -10., -10., -10., -0.01]], dtype=np.float32)
+    eos = np.array([[-10., -10., 0., -10., -10.]], dtype=np.float32)
+    engine.decoder = Mock()
+    engine.decoder.run.side_effect = [(char, np.zeros((1, 1))), (eos, np.zeros((1, 1)))]
+    text, score = engine.read_line(np.full((32, 60, 3), 255, dtype=np.uint8))
+    assert text == "ế" and 0.9 < score <= 1.0
+    engine.decoder.run.side_effect = None
+    engine.decoder.run.return_value = (char, np.zeros((1, 1)))
+    assert engine.read_line(np.full((32, 60, 3), 255, dtype=np.uint8)) == ("", 0.0)
 
 
 def session_with_child(tmp_path, monkeypatch, program):

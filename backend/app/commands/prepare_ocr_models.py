@@ -30,7 +30,8 @@ def prepare_models(directory: Path) -> None:
                     with source.open("rb") as model:
                         shutil.copyfileobj(model, output)
                 else:
-                    with urllib.request.urlopen(f"{MODEL_BASE_URL}/{relative}", timeout=60) as response:
+                    url = relative if relative.startswith("https://") else f"{MODEL_BASE_URL}/{relative}"
+                    with urllib.request.urlopen(url, timeout=60) as response:
                         shutil.copyfileobj(response, output)
             verify_model(Path(temporary), digest)
             os.replace(temporary, target)
