@@ -59,6 +59,7 @@ docker-compose.override.yml
 frontend/streamlit/.streamlit/secrets.toml
 
 # Build artifacts
+backend/models/ocr/
 dist/
 build/
 *.egg-info/

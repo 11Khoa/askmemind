@@ -84,6 +84,15 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = Field(default=25, ge=1, le=100)
     max_pdf_pages: int = Field(default=500, ge=1, le=10000)
     max_pdf_text_characters: int = Field(default=2_000_000, ge=1, le=20_000_000)
+    pdf_ocr_enabled: bool = True
+    pdf_ocr_model_dir: Path = BASE_DIR / "backend/models/ocr"
+    pdf_ocr_dpi: int = Field(default=180, ge=72, le=300)
+    pdf_ocr_max_pixels: int = Field(default=8_000_000, ge=100_000, le=20_000_000)
+    pdf_ocr_max_pages: int = Field(default=50, ge=1, le=500)
+    pdf_ocr_page_timeout_seconds: float = Field(default=60, ge=1, le=300)
+    pdf_ocr_document_timeout_seconds: float = Field(default=300, ge=1, le=1800)
+    pdf_ocr_min_confidence: float = Field(default=0.6, ge=0, le=1)
+    pdf_ocr_threads: int = Field(default=2, ge=1, le=8)
     max_documents_per_user: int = Field(default=100, ge=1)
     max_storage_per_user_mb: int = Field(default=500, ge=1)
     login_requests_per_minute: int = Field(default=10, ge=1)

@@ -61,7 +61,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: askmemind-celery-worker
-    command: ["celery", "-A", "app.core.celery_app", "worker", "--loglevel=INFO"]
+    command: ["celery", "-A", "app.core.celery_app", "worker", "--loglevel=INFO", "--concurrency=${CELERY_WORKER_CONCURRENCY:-2}", "--max-tasks-per-child=20"]
     env_file:
       - .env
     environment:
