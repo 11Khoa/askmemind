@@ -3,6 +3,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request, HTTPException
 from sqlalchemy.orm import Session, aliased
+from starlette.concurrency import run_in_threadpool
+from starlette.responses import StreamingResponse
 
 from app.core.dependencies import get_db, require_admin
 from app.models.user import User
@@ -16,6 +18,7 @@ from app.schemas.document import DocumentRead, SourcePassageRead
 from app.schemas.chat import ChatRead, ChatMessageRead
 from app.schemas.admin import Page, AdminUserCreate, AdminUserUpdate, AuditRead
 from app.services import admin_service
+from app.services.document_events import document_event_broker
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 DB = Annotated[Session, Depends(get_db)]
@@ -35,6 +38,17 @@ class AdminChatRead(ChatRead):
 def paginate(query, page, page_size, serialize=lambda row: row):
     return {"items": [serialize(row) for row in query.offset((page - 1) * page_size).limit(page_size).all()],
             "total": query.order_by(None).count(), "page": page, "page_size": page_size}
+
+
+@router.get("/documents/events")
+async def document_events(request: Request, admin: Admin, db: DB):
+    # require_admin authenticates before the stream opens; release its database
+    # connection while idle. Bounded streams reauthorize on every reconnect.
+    await run_in_threadpool(db.close)
+    return StreamingResponse(
+        document_event_broker.stream_admin(request), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/users", response_model=Page[UserRead])

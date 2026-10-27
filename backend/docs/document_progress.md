@@ -56,3 +56,22 @@ the document's persisted status remains authoritative.
 The React changes live on `feature/frontend-react`; deploy them after the backend
 migration/update. The new UI also handles responses from an older backend without
 progress fields, and the new backend remains usable by older clients.
+
+## Administrator event stream
+
+`GET /admin/documents/events` requires the same authenticated administrator role
+as the admin list endpoints. It subscribes to a separate global Redis channel,
+not a wildcard over private user channels. Only processing IDs, counters, status,
+safe error codes and timestamps are fanned out; page text, file paths and raw
+provider exceptions are excluded. The existing private user stream is unchanged.
+Streams release their authentication database session, send heartbeats and close
+after the configured bounded lifetime (240 seconds by default). Every reconnect
+reauthenticates; role revocation is enforced on the next connection, rather than
+claiming an already-open stream is revoked instantaneously.
+
+The admin frontend connects only while the Documents tab is open, patches visible
+rows in place, and reconciles a fresh snapshot on reconnect without changing the
+current page, search or owner filter. Events outside the visible page trigger a
+coalesced snapshot refresh, at most once every two seconds, to discover new rows.
+No schema migration, additional service or environment variable is needed for
+this SSE extension. Preserve `X-Accel-Buffering: no` and proxy streaming support.

@@ -42,7 +42,7 @@ def admin_workspace(auth_client, db_session, tmp_path):
 
 def test_user_cannot_access_any_admin_surface(admin_workspace):
     w = admin_workspace
-    for path in ("/admin/users", "/admin/documents", "/admin/chats", "/admin/activity",
+    for path in ("/admin/users", "/admin/documents", "/admin/documents/events", "/admin/chats", "/admin/activity",
                  f"/admin/chats/{w.chat.id}/messages", f"/admin/documents/{w.document.id}/chunks"):
         assert w.client.get(path, headers=w.user_headers).status_code == 403
     assert w.client.post("/admin/users", headers=w.user_headers, json={
@@ -50,6 +50,24 @@ def test_user_cannot_access_any_admin_surface(admin_workspace):
     }).status_code == 403
     assert w.client.patch(f"/admin/users/{w.owner.id}", headers=w.user_headers,
                          json={"role": "admin"}).status_code == 403
+
+
+def test_admin_document_stream_authenticates_before_opening(admin_workspace, monkeypatch):
+    from unittest.mock import Mock
+    w = admin_workspace
+    async def frames(request):
+        yield ': connected\n\n'
+        yield 'event: document_status\ndata: {"document_id":"id","status":"processing"}\n\n'
+    stream = Mock(side_effect=frames)
+    monkeypatch.setattr("app.routers.admin.document_event_broker.stream_admin", stream)
+    assert w.client.get('/admin/documents/events').status_code == 401
+    assert w.client.get('/admin/documents/events', headers=w.user_headers).status_code == 403
+    stream.assert_not_called()
+    response = w.client.get('/admin/documents/events', headers=w.headers)
+    assert response.status_code == 200
+    assert 'event: document_status' in response.text
+    assert response.headers['x-accel-buffering'] == 'no'
+    stream.assert_called_once()
 
 
 def test_admin_can_inspect_other_users_and_paginate(admin_workspace):
