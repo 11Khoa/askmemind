@@ -260,6 +260,20 @@ def test_timeout_kills_and_reaps_native_subprocess(tmp_path, monkeypatch):
     assert process.stdout.closed and process.stdin.closed
 
 
+def test_cancellation_check_interrupts_native_wait_and_reaps_subprocess(tmp_path, monkeypatch):
+    from app.services.document_progress import ProcessingStopped
+    session, process = session_with_child(tmp_path, monkeypatch,
+        "import sys,time; sys.stdin.readline(); time.sleep(10)")
+    checks = Mock(side_effect=[None, ProcessingStopped("cancelled")])
+    session.ensure_active = checks
+    try:
+        with pytest.raises(ProcessingStopped):
+            session.recognize(0, 100)
+    finally:
+        session.close()
+    assert process.returncode is not None
+
+
 def test_subprocess_crash_becomes_actionable_error(tmp_path, monkeypatch):
     session, process = session_with_child(tmp_path, monkeypatch, "import sys; sys.stdin.readline()")
     try:

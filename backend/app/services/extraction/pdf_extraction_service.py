@@ -31,6 +31,8 @@ class PdfExtractionService:
     def extract(self, file_path: Path, *, checkpoint: ExtractionCheckpoint | None = None) -> ExtractedSource:
         started = monotonic()
         session = OCRSession(file_path, settings, started + settings.pdf_ocr_document_timeout_seconds)
+        if checkpoint is not None and hasattr(checkpoint, "ensure_active"):
+            session.ensure_active = checkpoint.ensure_active
         try:
             return self._extract(file_path, session, started, checkpoint)
         finally:

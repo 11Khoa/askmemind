@@ -1,5 +1,6 @@
 """Committed page checkpoints and best-effort progress events, scoped to an attempt."""
 import logging
+from datetime import UTC, datetime
 from time import monotonic
 
 from sqlalchemy import delete, func, select, update
@@ -10,6 +11,10 @@ from app.models.document_page_checkpoint import DocumentPageCheckpoint
 from app.services.document_events import document_event_broker
 
 logger = logging.getLogger(__name__)
+
+
+class ProcessingStopped(ValueError):
+    """An attempt was cancelled/replaced and must not write any later result."""
 
 
 def processing_error_code(message: str, stage: str | None = None) -> str:
@@ -33,6 +38,7 @@ def failed_progress(progress: dict | None, message: str) -> dict:
     previous = progress or {}
     stage = previous.get("stage")
     return {**previous, "stage": "failed", "failed_stage": stage,
+            "finished_at": datetime.now(UTC).isoformat(),
             "error_code": processing_error_code(message, stage)}
 
 
@@ -40,19 +46,34 @@ class DocumentProgress:
     def __init__(self, repository, document):
         self.db = repository.db
         self.document = document
+        self.document_id = document.id
         self.attempt_id = document.processing_attempt_id
         self._events_available = True
         self._last_event = 0.0
         self._last_stage = None
 
     def _condition(self):
-        return (Document.id == self.document.id,
+        return (Document.id == self.document_id,
                 Document.processing_attempt_id == self.attempt_id,
                 Document.status == "processing")
 
     def _check_attempt(self):
         if self.db.scalar(select(Document.id).where(*self._condition()).with_for_update()) is None:
-            raise ValueError("Document processing attempt is no longer active")
+            raise ProcessingStopped("Document processing attempt is no longer active")
+
+    def ensure_active(self):
+        # Read committed state without retaining a row lock during native OCR or
+        # provider requests, so cancellation can be accepted immediately.
+        if self.db.scalar(select(Document.id).where(*self._condition())) is None:
+            raise ProcessingStopped("Document processing attempt is no longer active")
+
+    def guard_writes(self):
+        self._check_attempt()
+
+    def start(self):
+        started = (self.document.processing_progress or {}).get("started_at")
+        self.report(stage="queued", started_at=started or datetime.now(UTC).isoformat(),
+                    finished_at=None, error_code=None, failed_stage=None)
 
     def begin(self, fingerprint: str, total: int) -> dict:
         self._check_attempt()
@@ -90,7 +111,7 @@ class DocumentProgress:
         updated_at = result.scalar_one_or_none()
         if updated_at is None:
             self.db.rollback()
-            raise ValueError("Document processing attempt is no longer active")
+            raise ProcessingStopped("Document processing attempt is no longer active")
         self.db.commit()
         # ORM synchronize_session updates document.processing_progress too.
         if not self._events_available:

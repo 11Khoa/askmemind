@@ -88,8 +88,8 @@ class DocumentService:
 
     def retry_document(self, user_id: uuid.UUID, document_id: uuid.UUID) -> Document:
         document = self.get_user_document(user_id, document_id)
-        if document.status not in {DocumentStatus.PROCESSING_FAILED.value, "failed"}:
-            raise DocumentRetryConflict("Only failed documents can be retried")
+        if document.status not in {DocumentStatus.PROCESSING_FAILED.value, "failed", "cancelled"}:
+            raise DocumentRetryConflict("Only failed or cancelled documents can be retried")
         if document.chunk_count is None and not Path(document.file_path).is_file():
             raise DocumentRetryConflict("Original PDF is unavailable. Upload it again.")
         with self.document_repository.processing_lock(document_id) as acquired:
@@ -101,6 +101,20 @@ class DocumentService:
         if claimed is None:
             raise DocumentRetryConflict("Document is already being processed")
         return claimed
+
+    def cancel_document(self, user_id: uuid.UUID, document_id: uuid.UUID) -> Document:
+        document = self.get_user_document(user_id, document_id, allow_admin=True)
+        if document.status == "cancelled":
+            return document
+        if document.status not in {"processing", "uploaded"}:
+            raise DocumentRetryConflict("Document has already finished processing")
+        cancelled = self.document_repository.cancel_document(document_id)
+        if cancelled is None:
+            latest = self.get_user_document(user_id, document_id, allow_admin=True)
+            if latest.status == "cancelled":
+                return latest
+            raise DocumentRetryConflict("Document has already finished processing")
+        return cancelled
 
     def fail_enqueue(self, document: Document) -> None:
         self.document_repository.fail_attempt(

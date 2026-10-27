@@ -271,3 +271,47 @@ def test_upload_enqueue_failure_keeps_file_and_a_retryable_row(
     assert uploaded["status"] == "processing_failed"
     assert "Could not queue" in uploaded["error_message"]
     storage.delete_file.assert_not_called()
+
+
+def test_cancel_is_idempotent_and_retains_a_resumable_document(retry_client, failed_document, db_session):
+    client, queued = retry_client
+    failed_document.status = "processing"
+    failed_document.processing_progress = {"stage": "ocr", "completed_pages": 12,
+        "total_pages": 144, "started_at": "2026-10-27T00:00:00+00:00"}
+    db_session.commit()
+    response = client.post(f"/documents/{failed_document.id}/cancel")
+    assert response.status_code == 200
+    row = response.json()
+    assert row["status"] == "cancelled" and row["processing_attempt_id"] is None
+    assert row["processing_progress"]["completed_pages"] == 12
+    assert row["processing_progress"]["finished_at"]
+    assert row["processing_progress"]["started_at"] == "2026-10-27T00:00:00+00:00"
+    assert Path(failed_document.file_path).exists()
+    queued.assert_not_called()
+    again = client.post(f"/documents/{failed_document.id}/cancel")
+    assert again.json()["processing_progress"]["finished_at"] == row["processing_progress"]["finished_at"]
+    resumed = client.post(f"/documents/{failed_document.id}/retry")
+    assert resumed.status_code == 202
+    assert resumed.json()["status"] == "processing"
+    assert resumed.json()["processing_attempt_id"]
+    assert resumed.json()["processing_progress"]["started_at"] is None
+    queued.assert_called_once()
+
+
+def test_cancel_cannot_modify_a_finished_document(retry_client, failed_document, db_session):
+    client, _ = retry_client
+    failed_document.status = "ready"
+    db_session.commit()
+    assert client.post(f"/documents/{failed_document.id}/cancel").status_code == 409
+    assert db_session.get(Document, failed_document.id).status == "ready"
+
+
+def test_other_user_cannot_cancel_document(retry_client, failed_document, db_session):
+    client, _ = retry_client
+    failed_document.status = "processing"
+    other = User(email=f"other-{uuid.uuid4()}@example.com", hashed_password="hash")
+    db_session.add(other)
+    db_session.commit()
+    app.dependency_overrides[dependencies.get_current_user] = lambda: other
+    assert client.post(f"/documents/{failed_document.id}/cancel").status_code == 403
+    assert db_session.get(Document, failed_document.id).status == "processing"

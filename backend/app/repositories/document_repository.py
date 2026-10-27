@@ -1,7 +1,9 @@
 import uuid
+from datetime import UTC, datetime
 from contextlib import contextmanager
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import cast, func, select, text, update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from app.core.types import DocumentStatus
@@ -125,7 +127,7 @@ class DocumentRepository:
             .where(
                 Document.id == document_id,
                 Document.user_id == user_id,
-                Document.status.in_([DocumentStatus.PROCESSING_FAILED.value, "failed"]),
+                Document.status.in_([DocumentStatus.PROCESSING_FAILED.value, "failed", "cancelled"]),
             )
             .values(
                 status=DocumentStatus.PROCESSING.value,
@@ -137,7 +139,20 @@ class DocumentRepository:
         ).scalar_one_or_none()
         if result is not None:
             result.processing_progress = {**(result.processing_progress or {}),
-                                          "stage": "queued", "error_code": None, "failed_stage": None}
+                                          "stage": "queued", "error_code": None, "failed_stage": None,
+                                          "started_at": None, "finished_at": None}
+        self.db.commit()
+        return result
+
+    def cancel_document(self, document_id: uuid.UUID) -> Document | None:
+        additions = {"stage": "cancelled", "finished_at": datetime.now(UTC).isoformat(),
+                     "error_code": None, "failed_stage": None}
+        progress = func.coalesce(Document.processing_progress, cast({}, JSONB)).op("||")(cast(additions, JSONB))
+        result = self.db.execute(update(Document).where(
+            Document.id == document_id, Document.status.in_(["processing", "uploaded"]),
+        ).values(status="cancelled", processing_attempt_id=None, error_message=None,
+                 processing_progress=progress, updated_at=func.clock_timestamp()).returning(Document),
+            execution_options={"populate_existing": True}).scalar_one_or_none()
         self.db.commit()
         return result
 
@@ -168,7 +183,9 @@ class DocumentRepository:
         document.status = DocumentStatus.PROCESSING.value
         document.error_message = None
         document.processing_progress = {**(document.processing_progress or {}), "stage": "queued",
-                                        "error_code": None, "failed_stage": None}
+                                        "error_code": None, "failed_stage": None,
+                                        "started_at": (document.processing_progress or {}).get("started_at") or datetime.now(UTC).isoformat(),
+                                        "finished_at": None}
 
         self.db.flush()
 
@@ -180,7 +197,8 @@ class DocumentRepository:
         page_count: int | None,
     ) -> Document:
         document.status = DocumentStatus.READY.value
-        document.processing_progress = {**(document.processing_progress or {}), "stage": "ready"}
+        document.processing_progress = {**(document.processing_progress or {}), "stage": "ready",
+                                        "finished_at": datetime.now(UTC).isoformat()}
         document.page_count = page_count
         document.error_message = None
 

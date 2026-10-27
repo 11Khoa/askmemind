@@ -33,6 +33,7 @@ from app.services.file_storage_service import FileStorageService
 from app.services.chunk_persistence_service import ChunkPersistenceService
 from app.services.chunk_service import ChunkingService
 from app.services.document_events import document_event_broker
+from app.services.document_progress import ProcessingStopped
 from app.services.document_processing_service import DocumentProcessingService
 from app.services.extraction.pdf_extraction_service import PdfExtractionService
 from app.services.embedding_service import EmbeddingService
@@ -224,6 +225,9 @@ def process_document_in_background(
             try:
                 service = build_document_processing_service(db=db)
                 service.process_document(document_id=document_id, file_path=file_path)
+            except ProcessingStopped:
+                db.rollback()
+                log_event(logger, logging.INFO, "document.processing.stopped", document_id=str(document_id))
             except Exception as error:
                 db.rollback()
                 repository.fail_attempt(document_id, processing_attempt_id, str(error))
