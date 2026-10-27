@@ -2,6 +2,9 @@ import { BookOpenText, LoaderCircle } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { isTransientConnectionError } from '../lib/documentEvents'
+import { reconcileDocumentEvent } from '../lib/documentProgress'
+import type { DocumentConnectionState } from '../lib/documentEvents'
 import { api, ApiError, isAbortError } from '../lib/api'
 import { MAX_FILE_SIZE_MB, MAX_FILE_SIZE_BYTES } from "../lib/constants";
 import type {
@@ -32,25 +35,17 @@ function isReadyDocument(document: Document) {
   return READY_STATUSES.has(document.status)
 }
 
-function applyDocumentEvent(document: Document, event: DocumentStatusEvent): Document {
-  return {
-    ...document,
-    status: event.status,
-    page_count: event.page_count ?? document.page_count,
-    error_message: event.error_message,
-    processing_attempt_id: event.processing_attempt_id ?? document.processing_attempt_id,
-    updated_at: event.updated_at ?? document.updated_at,
-  }
-}
-
 export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
   const { t } = useTranslation()
   const [user, setUser] = useState<User | null>(null)
   const [documents, setDocuments] = useState<Document[]>([])
+  const [documentConnection, setDocumentConnection] = useState<DocumentConnectionState>('connecting')
   const documentsRef = useRef<Document[]>([])
   const documentEventsRef = useRef(new Map<string, DocumentStatusEvent>())
   const retryingRef = useRef(new Set<string>())
   const [retryingIds, setRetryingIds] = useState<ReadonlySet<string>>(new Set())
+  const cancellingRef = useRef(new Set<string>())
+  const [cancellingIds, setCancellingIds] = useState<ReadonlySet<string>>(new Set())
   const abortRef = useRef<AbortController | null>(null)
   const [chats, setChats] = useState<Chat[]>([])
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -124,15 +119,8 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
       documentEventsRef.current.set(event.document_id, event)
     }
     if (!currentDocument) return
-    const sameAttempt = event.processing_attempt_id === undefined ||
-      event.processing_attempt_id === currentDocument.processing_attempt_id
-    // A newer attempt may have been initiated in another browser tab.
-    if (!sameAttempt && !(eventTime !== null && currentTime !== null && eventTime > currentTime)) return
-    if (sameAttempt && currentDocument.status === event.status) return
-    if (sameAttempt && event.status === 'processing' &&
-        (READY_STATUSES.has(currentDocument.status) || FAILED_STATUSES.has(currentDocument.status))) return
-
-    const updatedDocument = applyDocumentEvent(currentDocument, event)
+    const updatedDocument = reconcileDocumentEvent(currentDocument, event)
+    if (!updatedDocument) return
     documentsRef.current = documentsRef.current.map((document) => (
       document.id === event.document_id ? updatedDocument : document
     ))
@@ -146,6 +134,8 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
           filename: updatedDocument.original_filename,
         }),
       })
+    } else if (event.status === 'cancelled') {
+      setNotice({ kind: 'success', message: t('documents.cancelledNotice', { filename: updatedDocument.original_filename }) })
     } else if (FAILED_STATUSES.has(event.status)) {
       setNotice({
         kind: 'error',
@@ -156,8 +146,19 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
     }
   }, [t])
 
-  useEffect(() => api.subscribeDocumentEvents(receiveDocumentEvent, handleError),
-    [receiveDocumentEvent, handleError])
+  useEffect(() => api.subscribeDocumentEvents(receiveDocumentEvent, handleError, {
+    onState: setDocumentConnection,
+    onConnected: async (signal) => {
+      const latest = await api.listDocuments(signal)
+      if (signal.aborted) return
+      latest.forEach((document) => receiveDocumentEvent({
+        document_id: document.id, status: document.status, page_count: document.page_count,
+        error_message: document.error_message, processing_attempt_id: document.processing_attempt_id,
+        processing_progress: document.processing_progress,
+        updated_at: document.updated_at,
+      }))
+    },
+  }), [receiveDocumentEvent, handleError])
 
   useEffect(() => {
     const processing = documents.filter((document) => document.status === 'processing')
@@ -176,10 +177,11 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
           status: document.status,
           page_count: document.page_count,
           error_message: document.error_message,
+          processing_progress: document.processing_progress,
           updated_at: document.updated_at,
         }))
       } catch (caught) {
-        if (active) handleError(caught)
+        if (active && !isTransientConnectionError(caught)) handleError(caught)
       } finally {
         polling = false
       }
@@ -398,6 +400,25 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
     }
   }
 
+  async function cancelDocument(documentId: string) {
+    if (cancellingRef.current.has(documentId)) return
+    cancellingRef.current.add(documentId)
+    setCancellingIds(new Set(cancellingRef.current))
+    try {
+      const document = await api.cancelDocument(documentId)
+      receiveDocumentEvent({ ...document, document_id: document.id })
+    } catch (caught) {
+      handleError(caught)
+      try {
+        const document = await api.getDocument(documentId)
+        receiveDocumentEvent({ ...document, document_id: document.id })
+      } catch { /* Keep the current row until reconciliation succeeds. */ }
+    } finally {
+      cancellingRef.current.delete(documentId)
+      setCancellingIds(new Set(cancellingRef.current))
+    }
+  }
+
   if (loading) {
     return (
       <main className="loading-screen">
@@ -509,6 +530,9 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
         open={documentsOpen}
         uploading={uploading}
         retryingIds={retryingIds}
+        cancellingIds={cancellingIds}
+        onCancel={(documentId) => void cancelDocument(documentId)}
+        connectionState={documentConnection}
         canDelete={user?.role === 'admin'}
         busy={sending || deleting}
         onDelete={(document) => { setDeleteError(''); setDeleteTarget({ kind: 'document', id: document.id, name: document.original_filename }) }}

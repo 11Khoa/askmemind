@@ -57,6 +57,20 @@ npm run preview
 
 The production build is written to `dist/`.
 
+## Live document updates
+
+Document SSE reconnects automatically after network errors, normal proxy closure
+or a 45-second heartbeat silence, with jittered backoff capped at 30 seconds. It
+rotates at four minutes to recheck the session through the authenticated client.
+Each connection reconciles document metadata; processing documents also retain
+their polling fallback. Transient background failures show a quiet reconnecting
+label instead of a global Network error. Leaving the workspace cancels the stream
+and pending retries. Question generation is never automatically resubmitted.
+
+Deploy the matching `feature/backend` stream lifecycle changes too. For VPS
+reverse proxies, see `backend/docs/sse_recovery.md` and the updated Nginx example
+on that branch; code changes do not automatically reload your VPS Nginx config.
+
 ## Vercel deployment
 
 Set the Vercel project's Root Directory to `frontend/react` and select the
@@ -184,3 +198,36 @@ accounts initially become users; bootstrap the first admin explicitly with the
 server command documented in `backend/docs/rbac_and_admin.md` on `feature/backend`.
 Configure SPA hosting to serve `index.html` for `/admin` as well as the existing
 reset-password route. No production account is automatically elevated by the UI.
+## Processing progress
+
+The administrator Documents tab uses its own authorized SSE stream. Visible rows
+update without resetting the current page, search or owner filter; reconnects
+refresh that same snapshot. The connection closes when leaving the tab. Deploy
+the backend `/admin/documents/events` endpoint before this frontend update.
+
+Documents show the current OCR page, indexing progress, saved pages reused by a
+retry, and actionable failure messages in both the workspace and administration
+table. Progress survives reload/device changes through the backend's persisted
+document snapshot, SSE and polling reconciliation. Older backend responses without
+`processing_progress` still render a generic processing state.
+
+Deploy the matching `feature/backend` update and its Alembic migration before
+deploying this frontend. No additional frontend environment variable is needed.
+
+Validation: `npm run build`, `npm run lint`, `npm test`, and
+`npm run test:e2e -- e2e/document-progress.spec.ts` (desktop/mobile).
+
+Elapsed time uses server attempt timestamps and a local one-second display timer;
+no extra API polling is introduced. Owners can cancel a processing file in the
+workspace; admins can cancel from the document table. Cancelled rows keep saved
+work and offer Resume in the owner's workspace. An in-flight provider request may
+finish before the worker exits, but its late result cannot change cancellation.
+
+
+The administration screen uses a responsive sidebar and a horizontally scrollable
+records table on narrow screens. Documents show their upload timestamp from
+`created_at` in GMT+7, separately from processing duration; workspace source cards
+show the same timestamp. Retrying or receiving progress events does not change the
+upload time. Unknown timestamps or durations display a dash rather than a guessed
+value. The document summary shows the total matching the current server query;
+Ready, Processing and Failed counts describe only the currently loaded page.
