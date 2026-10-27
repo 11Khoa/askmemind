@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { DocumentProcessingFeedback } from './components/DocumentProcessingFeedback'
 import type { FormEvent } from 'react'
 import { api } from '../lib/api'
 import { adminApi } from '../lib/admin'
@@ -118,7 +119,7 @@ function AdminDashboard({ onBack }: { onBack: () => void }) {
           }
           if (tab === 'documents') {
             const document = row as AdminDocument
-            return <tr key={document.id}><td>{document.owner_email}</td><td>{document.original_filename}<small>{document.id}</small></td><td>{document.status}</td><td className="admin-actions">
+            return <tr key={document.id}><td>{document.owner_email}</td><td>{document.original_filename}<small>{document.id}</small></td><td>{document.status}<DocumentProcessingFeedback document={document} /></td><td className="admin-actions">
               <button onClick={() => openDocument(document)}>View PDF</button><button className="danger-text" onClick={() => ask({ kind: 'document', id: document.id, name: `${document.original_filename} (${document.owner_email})` })}>Delete document</button></td></tr>
           }
           const conversation = row as AdminChat

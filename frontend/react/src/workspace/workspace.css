@@ -1308,3 +1308,8 @@ select:focus-visible {
 .source-pdf { display: block; width: 100%; height: 48vh; margin-top: 20px; border: 1px solid #d5dbd5; border-radius: 9px; }
 .citation-container { max-width: 100%; }
 .citation-container .source-open { margin: 6px 0 12px; font-size: 12px; }
+.document-feedback { min-width: 0; padding: 0 12px 10px; font-size: 12px; line-height: 1.5; color: #526653; overflow-wrap: anywhere; }
+.document-feedback p { margin: 4px 0; }
+.document-feedback small { display: block; margin-top: 4px; }
+.document-feedback progress { display: block; width: 100%; height: 7px; margin-top: 7px; accent-color: #477950; }
+.document-feedback--error { color: #9a3e31; }

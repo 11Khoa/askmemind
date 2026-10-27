@@ -198,3 +198,16 @@ accounts initially become users; bootstrap the first admin explicitly with the
 server command documented in `backend/docs/rbac_and_admin.md` on `feature/backend`.
 Configure SPA hosting to serve `index.html` for `/admin` as well as the existing
 reset-password route. No production account is automatically elevated by the UI.
+## Processing progress
+
+Documents show the current OCR page, indexing progress, saved pages reused by a
+retry, and actionable failure messages in both the workspace and administration
+table. Progress survives reload/device changes through the backend's persisted
+document snapshot, SSE and polling reconciliation. Older backend responses without
+`processing_progress` still render a generic processing state.
+
+Deploy the matching `feature/backend` update and its Alembic migration before
+deploying this frontend. No additional frontend environment variable is needed.
+
+Validation: `npm run build`, `npm run lint`, `npm test`, and
+`npm run test:e2e -- e2e/document-progress.spec.ts` (desktop/mobile).

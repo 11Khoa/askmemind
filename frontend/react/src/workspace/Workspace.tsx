@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { isTransientConnectionError } from '../lib/documentEvents'
+import { reconcileDocumentEvent } from '../lib/documentProgress'
 import type { DocumentConnectionState } from '../lib/documentEvents'
 import { api, ApiError, isAbortError } from '../lib/api'
 import { MAX_FILE_SIZE_MB, MAX_FILE_SIZE_BYTES } from "../lib/constants";
@@ -32,17 +33,6 @@ const FAILED_STATUSES = new Set(['processing_failed', 'failed'])
 
 function isReadyDocument(document: Document) {
   return READY_STATUSES.has(document.status)
-}
-
-function applyDocumentEvent(document: Document, event: DocumentStatusEvent): Document {
-  return {
-    ...document,
-    status: event.status,
-    page_count: event.page_count ?? document.page_count,
-    error_message: event.error_message,
-    processing_attempt_id: event.processing_attempt_id ?? document.processing_attempt_id,
-    updated_at: event.updated_at ?? document.updated_at,
-  }
 }
 
 export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
@@ -127,15 +117,8 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
       documentEventsRef.current.set(event.document_id, event)
     }
     if (!currentDocument) return
-    const sameAttempt = event.processing_attempt_id === undefined ||
-      event.processing_attempt_id === currentDocument.processing_attempt_id
-    // A newer attempt may have been initiated in another browser tab.
-    if (!sameAttempt && !(eventTime !== null && currentTime !== null && eventTime > currentTime)) return
-    if (sameAttempt && currentDocument.status === event.status) return
-    if (sameAttempt && event.status === 'processing' &&
-        (READY_STATUSES.has(currentDocument.status) || FAILED_STATUSES.has(currentDocument.status))) return
-
-    const updatedDocument = applyDocumentEvent(currentDocument, event)
+    const updatedDocument = reconcileDocumentEvent(currentDocument, event)
+    if (!updatedDocument) return
     documentsRef.current = documentsRef.current.map((document) => (
       document.id === event.document_id ? updatedDocument : document
     ))
@@ -167,6 +150,7 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
       latest.forEach((document) => receiveDocumentEvent({
         document_id: document.id, status: document.status, page_count: document.page_count,
         error_message: document.error_message, processing_attempt_id: document.processing_attempt_id,
+        processing_progress: document.processing_progress,
         updated_at: document.updated_at,
       }))
     },
@@ -189,6 +173,7 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
           status: document.status,
           page_count: document.page_count,
           error_message: document.error_message,
+          processing_progress: document.processing_progress,
           updated_at: document.updated_at,
         }))
       } catch (caught) {

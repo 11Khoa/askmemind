@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next'
 import type { DocumentConnectionState } from '../../lib/documentEvents'
 import type { Document } from '../../lib/types'
 import { MAX_FILE_SIZE_MB } from "../../lib/constants";
+import { DocumentProcessingFeedback } from './DocumentProcessingFeedback'
 
 type DocumentsPanelProps = {
   documents: Document[]
@@ -138,6 +139,7 @@ export function DocumentsPanel({
               {canDelete && <button className="icon-button delete-action" disabled={busy || retrying}
                 aria-label={t('documents.deleteNamed', { filename: document.original_filename })}
                 onClick={() => onDelete(document)}><Trash2 size={15} /></button>}
+              <DocumentProcessingFeedback document={document} />
             </div>
           )
         })}
