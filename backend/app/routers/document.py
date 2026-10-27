@@ -1,4 +1,5 @@
 import uuid
+import logging
 from typing import Annotated
 from sqlalchemy.orm import Session
 
@@ -22,6 +23,35 @@ router = APIRouter(
     prefix="/documents",
     tags=["documents"],
 )
+
+logger = logging.getLogger(__name__)
+
+
+@router.post("/{document_id}/cancel", response_model=DocumentRead)
+def cancel_document(
+    document_id: uuid.UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    document_service: Annotated[DocumentService, Depends(get_document_service)],
+):
+    try:
+        document = document_service.cancel_document(current_user.id, document_id)
+        try:
+            document_event_broker.publish(document.user_id, {
+                "document_id": str(document.id), "status": document.status,
+                "processing_attempt_id": document.processing_attempt_id,
+                "processing_progress": document.processing_progress,
+                "page_count": document.page_count, "error_message": document.error_message,
+                "updated_at": document.updated_at.isoformat(),
+            })
+        except Exception:
+            logger.warning("document.cancel.event_failed")
+        return document
+    except DocumentRetryConflict as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
 
 
 @router.delete("/{document_id}", status_code=204)

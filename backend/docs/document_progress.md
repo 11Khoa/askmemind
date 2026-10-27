@@ -75,3 +75,31 @@ current page, search or owner filter. Events outside the visible page trigger a
 coalesced snapshot refresh, at most once every two seconds, to discover new rows.
 No schema migration, additional service or environment variable is needed for
 this SSE extension. Preserve `X-Accel-Buffering: no` and proxy streaming support.
+
+## Elapsed time and cancellation
+
+Progress includes server UTC `started_at` / `finished_at` timestamps for the
+current attempt. The timer starts when a worker begins (not while queued), freezes
+on ready/failure/cancellation, and resets on a manual retry. A redelivery of the
+same attempt retains its original start. Clients calculate elapsed time locally;
+no per-second API or Redis messages are necessary.
+
+`POST /documents/{id}/cancel` lets an owner cancel their own queued/processing
+document; authenticated administrators can cancel other users' documents too.
+The endpoint atomically sets `status=cancelled`, records the finish time and
+invalidates the attempt token. Repeated cancellation is idempotent. A document
+that already reached a terminal state returns 409 instead of being changed.
+PDFs, page checkpoints, completed chunks and completed embedding batches remain.
+The existing retry endpoint accepts cancelled documents and assigns a fresh
+attempt. It may briefly return 409 while the previous worker releases its lock.
+
+The OCR parent checks cancellation at most one second apart while waiting for
+native inference, then kills/reaps that document's subprocess. An embedding
+request already sent cannot be recalled; the worker waits for its return/timeout
+and discards the result if cancelled. Document-row locks guard short write/finish
+transactions, so a late worker cannot overwrite cancellation with ready/failed.
+No global Celery revoke/terminate is used, avoiding interruption of other users'
+jobs. Cancelled queued messages are ignored by the existing attempt/status check.
+
+This extension stores timestamps in existing progress JSON and uses the existing
+text status column: no additional migration or environment variable is required.

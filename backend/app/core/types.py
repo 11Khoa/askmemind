@@ -9,5 +9,6 @@ class DocumentStatus(StrEnum):
     PROCESSING = "processing"
     READY = "ready"
     PROCESSING_FAILED = "processing_failed"
+    CANCELLED = "cancelled"
     COMPLETED = "ready"
     FAILED = "processing_failed"

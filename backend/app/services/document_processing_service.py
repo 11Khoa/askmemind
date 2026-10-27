@@ -8,6 +8,7 @@ from app.services.chunk_persistence_service import ChunkPersistenceService
 from app.services.chunk_service import ChunkingService
 from app.services.embedding_service import EmbeddingService
 from app.services.extraction.base import SourceExtractionService
+from app.services.document_progress import ProcessingStopped
 
 
 class DocumentProcessingService:
@@ -55,9 +56,12 @@ class DocumentProcessingService:
         if document is None:
             raise ValueError("Document not found")
 
-        self.document_repository.mark_processing_started(document=document)
-        self.unit_of_work.commit()
         progress = self.checkpoint_factory(document) if self.checkpoint_factory else None
+        if progress:
+            progress.start()
+        else:
+            self.document_repository.mark_processing_started(document=document)
+            self.unit_of_work.commit()
 
         try:
             chunks = self.chunk_persistence_service.list_chunks(document_id)
@@ -79,6 +83,8 @@ class DocumentProcessingService:
                 text_chunks = self.chunking_service.chunk_source(source=source)
                 if not text_chunks:
                     raise ValueError("PDF contains no extractable text")
+                if progress:
+                    progress.guard_writes()
                 chunks = self.chunk_persistence_service.prepare_chunks(
                     document_id, text_chunks
                 )
@@ -98,6 +104,8 @@ class DocumentProcessingService:
                 embeddings = self.embedding_service.embed_passages(
                     texts=[chunk.content for chunk in batch]
                 )
+                if progress:
+                    progress.guard_writes()
                 self.chunk_persistence_service.save_embeddings(
                     batch,
                     embeddings,
@@ -110,6 +118,8 @@ class DocumentProcessingService:
                 completed_chunks += len(batch)
                 if progress:
                     progress.report(completed_chunks=completed_chunks)
+            if progress:
+                progress.guard_writes()
             self.document_repository.mark_processing_completed(
                 document=document,
                 page_count=document.page_count,
@@ -119,8 +129,13 @@ class DocumentProcessingService:
 
             return chunks
 
+        except ProcessingStopped:
+            self.unit_of_work.rollback()
+            raise
         except Exception as error:
             self.unit_of_work.rollback()
+            if progress:
+                progress.guard_writes()
 
             self.document_repository.mark_processing_failed(
                 document=document,

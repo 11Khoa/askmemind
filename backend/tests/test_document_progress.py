@@ -210,6 +210,78 @@ def test_progress_is_available_on_document_get_and_list(checkpoint_document, db_
         app.dependency_overrides.pop(get_document_service, None)
 
 
+def make_processing_service(document, repository, db_session, embeddings):
+    return DocumentProcessingService(
+        extraction_service=extraction.PdfExtractionService(), chunking_service=ChunkingService(),
+        embedding_service=embeddings,
+        chunk_persistence_service=ChunkPersistenceService(ChunkRepository(db_session)),
+        document_repository=repository, unit_of_work=db_session, embedding_batch_size=1,
+        checkpoint_factory=lambda row: DocumentProgress(repository, row),
+    )
+
+
+def test_cancel_during_ocr_does_not_become_failed_or_save_the_cancelled_page(checkpoint_document, db_session):
+    from app.services.document_progress import ProcessingStopped
+    document, repository, session, _ = checkpoint_document
+    embeddings = Mock(embedding_provider="test", embedding_model="test", embedding_dimensions=2048)
+    def cancel(*args):
+        repository.cancel_document(document.id)
+        return {"text": "Late OCR result", "confidence": 0.9}
+    session.recognize.side_effect = cancel
+    with pytest.raises(ProcessingStopped):
+        make_processing_service(document, repository, db_session, embeddings).process_document(document.id, Path(document.file_path))
+    db_session.refresh(document)
+    assert document.status == "cancelled"
+    assert document.error_message is None
+    assert document.processing_progress["stage"] == "cancelled"
+    assert document.processing_progress["started_at"]
+    assert document.processing_progress["finished_at"]
+    assert [row.page_number for row in rows(db_session, document)] == [1]
+    session.close.assert_called_once()
+    embeddings.embed_passages.assert_not_called()
+
+
+def test_cancel_during_embedding_discards_late_result_and_can_resume(checkpoint_document, db_session):
+    from app.models.chunk import Chunk
+    from app.services.document_progress import ProcessingStopped
+    document, repository, session, _ = checkpoint_document
+    embeddings = Mock(embedding_provider="test", embedding_model="test", embedding_dimensions=2048)
+    def cancel(texts):
+        repository.cancel_document(document.id)
+        return [[0.1] * 2048 for _ in texts]
+    embeddings.embed_passages.side_effect = cancel
+    service = make_processing_service(document, repository, db_session, embeddings)
+    old_attempt = document.processing_attempt_id
+    with pytest.raises(ProcessingStopped):
+        service.process_document(document.id, Path(document.file_path))
+    db_session.refresh(document)
+    assert document.status == "cancelled"
+    assert all(row.embedding_v2 is None for row in db_session.scalars(select(Chunk).where(Chunk.document_id == document.id)))
+    assert len(rows(db_session, document)) == 4
+    document = repository.claim_retry(document.id, document.user_id)
+    embeddings.embed_passages.side_effect = lambda texts: [[0.1] * 2048 for _ in texts]
+    session.recognize.reset_mock()
+    service.process_document(document.id, Path(document.file_path))
+    session.recognize.assert_not_called()
+    assert document.status == "ready"
+    assert document.processing_progress["finished_at"] >= document.processing_progress["started_at"]
+    repository.fail_attempt(document.id, old_attempt, "Late failure from cancelled attempt")
+    db_session.refresh(document)
+    assert document.status == "ready" and document.error_message is None
+
+
+def test_cancelled_attempt_cannot_restart_or_write_ready(checkpoint_document, db_session):
+    from app.services.document_progress import ProcessingStopped
+    document, repository, _, _ = checkpoint_document
+    progress = DocumentProgress(repository, document)
+    repository.cancel_document(document.id)
+    with pytest.raises(ProcessingStopped):
+        progress.start()
+    db_session.refresh(document)
+    assert document.status == "cancelled"
+    assert document.processing_progress["stage"] == "cancelled"
+
+
 @pytest.mark.parametrize("message,stage,expected", [
     ("PDF OCR exceeded timeout", "ocr", "ocr_timeout"),
     ("PDF exceeds the configured OCR page limit", "ocr", "ocr_page_limit"),

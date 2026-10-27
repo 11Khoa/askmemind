@@ -70,6 +70,16 @@ def test_admin_document_stream_authenticates_before_opening(admin_workspace, mon
     stream.assert_called_once()
 
 
+def test_admin_can_cancel_another_users_processing_document(admin_workspace, db_session):
+    w = admin_workspace
+    w.document.status = "processing"
+    db_session.commit()
+    result = w.client.post(f"/documents/{w.document.id}/cancel", headers=w.headers)
+    assert result.status_code == 200
+    assert result.json()["status"] == "cancelled"
+    assert result.json()["user_id"] == str(w.owner.id)
+
+
 def test_admin_can_inspect_other_users_and_paginate(admin_workspace):
     w = admin_workspace
     page = w.client.get("/admin/users?page_size=1", headers=w.headers).json()

@@ -17,6 +17,7 @@ class OCRSession:
         self.config = config
         self.deadline = deadline
         self.process = None
+        self.ensure_active = None
 
     def _start(self):
         config = self.config
@@ -44,6 +45,8 @@ class OCRSession:
             raise ValueError("OCR worker exited unexpectedly. Check OCR installation and retry.") from error
 
     def recognize(self, page_index: int, max_characters: int) -> dict:
+        if self.ensure_active is not None:
+            self.ensure_active()
         deadline = min(self.deadline, monotonic() + self.config.pdf_ocr_page_timeout_seconds)
         if monotonic() >= deadline:
             raise ValueError("PDF OCR exceeded the configured document timeout")
@@ -57,7 +60,13 @@ class OCRSession:
             selector.register(self.process.stdout, selectors.EVENT_READ)
             while True:
                 remaining = deadline - monotonic()
-                if remaining <= 0 or not selector.select(remaining):
+                if self.ensure_active is not None:
+                    self.ensure_active()
+                if remaining <= 0:
+                    raise ValueError("PDF OCR exceeded the configured page or document timeout")
+                if not selector.select(min(1.0, remaining) if self.ensure_active is not None else remaining):
+                    if self.ensure_active is not None:
+                        continue
                     raise ValueError("PDF OCR exceeded the configured page or document timeout")
                 block = os.read(self.process.stdout.fileno(), min(65536, max_bytes + 1 - len(output)))
                 if not block:

@@ -39,7 +39,7 @@ class DocumentEventBroker:
             # text, paths or raw provider errors. Only the admin route subscribes.
             fields = ("document_id", "status", "page_count", "updated_at", "processing_attempt_id")
             progress_fields = ("stage", "completed_pages", "total_pages", "current_page", "reused_pages",
-                               "completed_chunks", "total_chunks", "failed_stage", "error_code")
+                               "completed_chunks", "total_chunks", "failed_stage", "error_code", "started_at", "finished_at")
             admin_payload = {key: payload[key] for key in fields if key in payload}
             admin_payload["user_id"] = str(user_id)
             admin_payload["error_message"] = None
