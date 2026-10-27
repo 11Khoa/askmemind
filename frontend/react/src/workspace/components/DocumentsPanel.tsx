@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next'
 import type { DocumentConnectionState } from '../../lib/documentEvents'
 import type { Document } from '../../lib/types'
 import { MAX_FILE_SIZE_MB } from "../../lib/constants";
+import { UploadedAt } from './UploadedAt'
 import { DocumentProcessingFeedback, ProcessingElapsed } from './DocumentProcessingFeedback'
 
 type DocumentsPanelProps = {
@@ -131,6 +132,7 @@ export function DocumentsPanel({
                 </span>
                 <ChevronRight size={16} />
               </button>
+              <div className="document-uploaded"><UploadedAt value={document.created_at} compact /></div>
               <DocumentProcessingFeedback document={document} showElapsed={false} />
               <div className="document-card-footer">
                 <span className={`status status--${document.status}`}>

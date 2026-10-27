@@ -9,6 +9,7 @@ async function setup(page: Page, recover = false) {
   let document = {
     id: 'doc', user_id: 'owner', owner_email: 'owner@example.com', original_filename: 'Report.pdf',
     status: 'processing', processing_attempt_id: 'attempt', page_count: null,
+    file_size_bytes: 51200, created_at: '2026-10-25T18:30:00Z',
     error_message: null, updated_at: '2026-10-27T00:00:00Z',
     processing_progress: { stage: 'ocr', current_page: 7, completed_pages: 6, total_pages: 144,
       completed_chunks: 0, total_chunks: 10 },
@@ -68,6 +69,11 @@ test('admin SSE updates filtered page in place and stops when leaving documents'
       processing_progress: { stage: 'ocr', current_page: 23, completed_pages: 22, total_pages: 144 } },
   ])
   await expect(page.locator('.admin-table-wrap')).toContainText('Recognizing text: page 23 of 144')
+  await expect(page.locator('.admin-uploaded time')).toHaveAttribute('datetime', '2026-10-25T18:30:00Z')
+  await expect(page.locator('.admin-uploaded time')).toContainText('26 Oct 2026')
+  await expect(page.locator('.admin-uploaded time')).toContainText('01:30 GMT+7')
+  await expect(page.getByRole('region', { name: 'Document summary' })).toContainText('Matching documents40')
+  await expect(page.getByRole('region', { name: 'Document summary' })).toContainText('Processing on this page1')
   await expect(search).toHaveValue('Report')
   await expect(page.getByText(/Page 2 of 2/)).toBeVisible()
   expect(state.queries.at(-1)?.get('user_id')).toBe('owner')

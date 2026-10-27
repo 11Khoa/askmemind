@@ -222,3 +222,12 @@ no extra API polling is introduced. Owners can cancel a processing file in the
 workspace; admins can cancel from the document table. Cancelled rows keep saved
 work and offer Resume in the owner's workspace. An in-flight provider request may
 finish before the worker exits, but its late result cannot change cancellation.
+
+
+The administration screen uses a responsive sidebar and a horizontally scrollable
+records table on narrow screens. Documents show their upload timestamp from
+`created_at` in GMT+7, separately from processing duration; workspace source cards
+show the same timestamp. Retrying or receiving progress events does not change the
+upload time. Unknown timestamps or durations display a dash rather than a guessed
+value. The document summary shows the total matching the current server query;
+Ready, Processing and Failed counts describe only the currently loaded page.
