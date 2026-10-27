@@ -20,6 +20,7 @@ class DocumentProcessingService:
         document_repository: DocumentRepository,
         unit_of_work: UnitOfWork,
         embedding_batch_size: int = 32,
+        checkpoint_factory=None,
     ) -> None:
         if embedding_batch_size < 1:
             raise ValueError("Embedding batch size must be positive")
@@ -30,6 +31,7 @@ class DocumentProcessingService:
         self.document_repository = document_repository
         self.unit_of_work = unit_of_work
         self.embedding_batch_size = embedding_batch_size
+        self.checkpoint_factory = checkpoint_factory
 
     def _has_current_embedding(self, chunk: Chunk) -> bool:
         service = self.embedding_service
@@ -55,6 +57,7 @@ class DocumentProcessingService:
 
         self.document_repository.mark_processing_started(document=document)
         self.unit_of_work.commit()
+        progress = self.checkpoint_factory(document) if self.checkpoint_factory else None
 
         try:
             chunks = self.chunk_persistence_service.list_chunks(document_id)
@@ -69,7 +72,10 @@ class DocumentProcessingService:
                 # Legacy rows alone do not prove extraction/chunking finished.
                 if not file_path.is_file():
                     raise ValueError("Original PDF is unavailable. Upload it again.")
-                source = self.extraction_service.extract(file_path=file_path)
+                options = {"checkpoint": progress} if progress else {}
+                source = self.extraction_service.extract(file_path=file_path, **options)
+                if progress:
+                    progress.report(stage="chunking", current_page=None)
                 text_chunks = self.chunking_service.chunk_source(source=source)
                 if not text_chunks:
                     raise ValueError("PDF contains no extractable text")
@@ -83,6 +89,10 @@ class DocumentProcessingService:
             pending = [
                 chunk for chunk in chunks if not self._has_current_embedding(chunk)
             ]
+            completed_chunks = len(chunks) - len(pending)
+            if progress:
+                progress.report(stage="embedding", current_page=None,
+                                total_chunks=len(chunks), completed_chunks=completed_chunks)
             for start in range(0, len(pending), self.embedding_batch_size):
                 batch = pending[start : start + self.embedding_batch_size]
                 embeddings = self.embedding_service.embed_passages(
@@ -97,6 +107,9 @@ class DocumentProcessingService:
                 )
                 # Successful batches survive a later provider/worker failure.
                 self.unit_of_work.commit()
+                completed_chunks += len(batch)
+                if progress:
+                    progress.report(completed_chunks=completed_chunks)
             self.document_repository.mark_processing_completed(
                 document=document,
                 page_count=document.page_count,

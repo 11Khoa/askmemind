@@ -1,7 +1,7 @@
 import uuid
 from contextlib import contextmanager
 
-from sqlalchemy import func, text, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session
 
 from app.core.types import DocumentStatus
@@ -11,6 +11,7 @@ from app.models.user import User
 from app.models.chunk import Chunk
 from app.models.chat import Chat
 from app.models.chat_message import ChatMessage
+from app.services.document_progress import failed_progress
 
 
 class DocumentQuotaExceeded(Exception):
@@ -134,12 +135,20 @@ class DocumentRepository:
             .returning(Document),
             execution_options={"populate_existing": True},
         ).scalar_one_or_none()
+        if result is not None:
+            result.processing_progress = {**(result.processing_progress or {}),
+                                          "stage": "queued", "error_code": None, "failed_stage": None}
         self.db.commit()
         return result
 
     def fail_attempt(
         self, document_id: uuid.UUID, attempt_id: uuid.UUID | None, reason: str
     ) -> None:
+        previous = self.db.scalar(
+            select(Document.processing_progress).where(
+                Document.id == document_id, Document.processing_attempt_id == attempt_id,
+            )
+        )
         self.db.execute(
             update(Document)
             .where(
@@ -147,7 +156,8 @@ class DocumentRepository:
                 Document.processing_attempt_id == attempt_id,
                 Document.status == DocumentStatus.PROCESSING.value,
             )
-            .values(status=DocumentStatus.PROCESSING_FAILED.value, error_message=reason)
+            .values(status=DocumentStatus.PROCESSING_FAILED.value, error_message=reason,
+                    processing_progress=failed_progress(previous, reason))
         )
         self.db.commit()
 
@@ -157,6 +167,8 @@ class DocumentRepository:
     ) -> Document:
         document.status = DocumentStatus.PROCESSING.value
         document.error_message = None
+        document.processing_progress = {**(document.processing_progress or {}), "stage": "queued",
+                                        "error_code": None, "failed_stage": None}
 
         self.db.flush()
 
@@ -168,6 +180,7 @@ class DocumentRepository:
         page_count: int | None,
     ) -> Document:
         document.status = DocumentStatus.READY.value
+        document.processing_progress = {**(document.processing_progress or {}), "stage": "ready"}
         document.page_count = page_count
         document.error_message = None
 
@@ -182,6 +195,7 @@ class DocumentRepository:
     ) -> Document:
         document.status = DocumentStatus.PROCESSING_FAILED.value
         document.error_message = error_message
+        document.processing_progress = failed_progress(document.processing_progress, error_message)
 
         self.db.flush()
 
