@@ -4,6 +4,7 @@ import type { DocumentStatusEvent } from './types'
 
 export type DocumentConnectionState = 'connecting' | 'connected' | 'reconnecting'
 type Options = {
+  endpoint?: '/documents/events' | '/admin/documents/events'
   onState?: (state: DocumentConnectionState) => void
   onConnected?: (signal: AbortSignal) => Promise<void>
 }
@@ -57,7 +58,7 @@ export function subscribeDocumentEvents(
       let receivedEvent = false
       let terminal = false
       try {
-        const response = await authenticatedResponse('/documents/events', { signal: current.signal })
+        const response = await authenticatedResponse(options.endpoint || '/documents/events', { signal: current.signal })
         if (lifetime.signal.aborted) { await response.body?.cancel(); break }
         if (!response.headers.get('content-type')?.includes('text/event-stream')) {
           await response.body?.cancel()

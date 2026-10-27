@@ -14,10 +14,10 @@ export type AdminTab = 'users' | 'documents' | 'chats' | 'activity'
 export type AdminRow = User | AdminDocument | AdminChat | AuditEvent
 
 export const adminApi = {
-  list(tab: AdminTab, page: number, q: string, userId: string) {
+  list(tab: AdminTab, page: number, q: string, userId: string, signal?: AbortSignal) {
     const params = new URLSearchParams({ page: String(page), page_size: '20', q })
     if (userId && tab !== 'users') params.set('user_id', userId)
-    return request<Page<AdminRow>>(`/admin/${tab}?${params}`, {}, true)
+    return request<Page<AdminRow>>(`/admin/${tab}?${params}`, { signal }, true)
   },
   createUser(payload: { email: string; password: string; role: User['role'] }) {
     return request<User>('/admin/users', { method: 'POST', body: JSON.stringify(payload) }, true)

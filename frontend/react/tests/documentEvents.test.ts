@@ -9,6 +9,16 @@ const connect = vi.mocked(authenticatedResponse)
 const stops: (() => void)[] = []
 const sseHeaders = { 'Content-Type': 'text/event-stream' }
 
+it('opens the explicitly authorized admin endpoint and aborts it on cleanup', async () => {
+  const stop = subscribeDocumentEvents(vi.fn(), vi.fn(), { endpoint: '/admin/documents/events' })
+  stops.push(stop)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(connect.mock.calls[0]?.[0]).toBe('/admin/documents/events')
+  const signal = connect.mock.calls[0]?.[1]?.signal
+  stop()
+  expect(signal?.aborted).toBe(true)
+})
+
 function openStream(signal: AbortSignal) {
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {

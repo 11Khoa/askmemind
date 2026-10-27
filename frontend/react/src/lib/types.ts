@@ -28,6 +28,7 @@ export type DocumentProcessingProgress = {
 }
 
 export type DocumentStatusEvent = {
+  user_id?: string
   processing_progress?: DocumentProcessingProgress | null
   updated_at?: string | null
   processing_attempt_id?: string | null

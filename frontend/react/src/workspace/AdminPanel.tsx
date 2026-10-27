@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react'
 import { DocumentProcessingFeedback } from './components/DocumentProcessingFeedback'
 import type { FormEvent } from 'react'
-import { api } from '../lib/api'
+import { api, ApiError, isAbortError } from '../lib/api'
+import { subscribeDocumentEvents } from '../lib/documentEvents'
+import type { DocumentConnectionState } from '../lib/documentEvents'
+import { documentEventTimestamp } from '../lib/documentProgress'
+import { reconcileAdminDocuments } from '../lib/adminDocumentEvents'
 import { adminApi } from '../lib/admin'
 import type { AdminTab, AdminRow, AdminDocument, AdminChat, AuditEvent, Page } from '../lib/admin'
-import type { User, Citation, ChatMessage } from '../lib/types'
+import type { User, Citation, ChatMessage, DocumentStatusEvent } from '../lib/types'
 import { ActionDialog } from './components/ActionDialog'
 import { SourceViewer } from './components/SourceViewer'
 import './admin.css'
@@ -53,15 +57,82 @@ function AdminDashboard({ onBack }: { onBack: () => void }) {
   const [actionError, setActionError] = useState('')
   const [source, setSource] = useState<{ citation: Citation; filename: string; documentOnly: boolean } | null>(null)
   const [chat, setChat] = useState<AdminChat | null>(null)
+  const [connection, setConnection] = useState<DocumentConnectionState>('connecting')
+  const [liveIssue, setLiveIssue] = useState<{ key: string; message: string } | null>(null)
 
   useEffect(() => {
     let active = true
-    void adminApi.list(tab, page, query, owner?.id || '').then((data) => {
-      if (active) setResult({ key, data })
-    }).catch((caught: unknown) => {
-      if (active) setError({ key, message: caught instanceof Error ? caught.message : 'Could not load administration data' })
+    const lifetime = new AbortController()
+    let accessRevoked = false
+    let visible = new Set<string>()
+    const buffered = new Map<string, DocumentStatusEvent>()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let inFlight = false
+    let refreshPending = false
+    let lastSnapshot = 0
+
+    function reportError(caught: unknown) {
+      if (!active || isAbortError(caught)) return
+      if (caught instanceof ApiError && (caught.status === 401 || caught.status === 403)) {
+        accessRevoked = true
+        lifetime.abort()
+        clearTimeout(timer)
+        setError({ key, message: 'Administrator access is no longer available.' })
+        setLiveIssue({ key, message: 'Live updates stopped: administrator permission required.' })
+      } else {
+        setLiveIssue({ key, message: 'Live updates are temporarily unavailable. Use Refresh to check the latest status.' })
+      }
+    }
+    function scheduleSnapshot() {
+      if (!active || accessRevoked || timer) return
+      timer = setTimeout(() => {
+        timer = undefined
+        void loadSnapshot(lifetime.signal).catch(reportError)
+      }, Math.max(0, 2000 - (Date.now() - lastSnapshot)))
+    }
+    async function loadSnapshot(signal: AbortSignal) {
+      if (inFlight) { refreshPending = true; return }
+      inFlight = true
+      lastSnapshot = Date.now()
+      try {
+        let data = await adminApi.list(tab, page, query, owner?.id || '', signal)
+        if (!active || accessRevoked || signal.aborted) return
+        if (tab === 'documents') {
+          for (const event of buffered.values()) data = reconcileAdminDocuments(data, event)
+        }
+        visible = new Set(data.items.map((row) => String(row.id)))
+        setResult({ key, data })
+        setError(null)
+        setLiveIssue(null)
+      } finally {
+        inFlight = false
+        if (refreshPending && active) { refreshPending = false; scheduleSnapshot() }
+      }
+    }
+    void loadSnapshot(lifetime.signal).catch((caught: unknown) => {
+      if (active && !isAbortError(caught)) setError({ key, message: caught instanceof Error ? caught.message : 'Could not load administration data' })
     })
-    return () => { active = false }
+    const stop = tab === 'documents' ? subscribeDocumentEvents((event) => {
+      if (!active || accessRevoked || (owner?.id && event.user_id && event.user_id !== owner.id)) return
+      const previous = buffered.get(event.document_id)
+      const time = documentEventTimestamp(event.updated_at), old = documentEventTimestamp(previous?.updated_at)
+      if (time !== null && old !== null && time < old) return
+      buffered.set(event.document_id, event)
+      if (buffered.size > 500) {
+        const oldest = buffered.keys().next().value
+        if (oldest !== undefined) buffered.delete(oldest)
+      }
+      setResult((current) => {
+        if (current?.key !== key) return current
+        const next = reconcileAdminDocuments(current.data, event)
+        return next === current.data ? current : { key, data: next }
+      })
+      if (!visible.has(event.document_id)) scheduleSnapshot()
+    }, reportError, {
+      endpoint: '/admin/documents/events', onState: setConnection,
+      onConnected: loadSnapshot,
+    }) : undefined
+    return () => { active = false; lifetime.abort(); stop?.(); clearTimeout(timer) }
   }, [key, tab, page, query, owner?.id])
 
   function changeTab(next: AdminTab) { setTab(next); setPage(1); setSearch(''); setQuery('') }
@@ -92,6 +163,11 @@ function AdminDashboard({ onBack }: { onBack: () => void }) {
     <header className="admin-header"><div><p className="eyebrow">AskMeMind</p><h1>Administration</h1></div>
       <button onClick={onBack}>Back to workspace</button></header>
     <p className="admin-notice">Administrator access: you can inspect all users’ documents, conversations and recorded activity. Your actions are audited.</p>
+    {tab === 'documents' && <p className="admin-live-state" aria-live="polite">
+      {liveIssue?.key === key ? liveIssue.message : connection === 'connected'
+        ? 'Live document updates connected' : connection === 'reconnecting'
+          ? 'Reconnecting live document updates…' : 'Connecting live document updates…'}
+    </p>}
     <nav className="admin-tabs" aria-label="Administration sections">{(['users', 'documents', 'chats', 'activity'] as const).map((item) =>
       <button key={item} aria-current={tab === item ? 'page' : undefined} onClick={() => changeTab(item)}>{item[0].toUpperCase() + item.slice(1)}</button>)}</nav>
     <div className="admin-toolbar"><form onSubmit={(event) => { event.preventDefault(); setQuery(search); setPage(1) }}>

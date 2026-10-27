@@ -200,6 +200,11 @@ Configure SPA hosting to serve `index.html` for `/admin` as well as the existing
 reset-password route. No production account is automatically elevated by the UI.
 ## Processing progress
 
+The administrator Documents tab uses its own authorized SSE stream. Visible rows
+update without resetting the current page, search or owner filter; reconnects
+refresh that same snapshot. The connection closes when leaving the tab. Deploy
+the backend `/admin/documents/events` endpoint before this frontend update.
+
 Documents show the current OCR page, indexing progress, saved pages reused by a
 retry, and actionable failure messages in both the workspace and administration
 table. Progress survives reload/device changes through the backend's persisted

@@ -5,7 +5,7 @@ const errors = new Set(['ocr_timeout', 'ocr_page_limit', 'ocr_models', 'no_text'
   'file_missing', 'embedding_failed', 'processing_failed'])
 
 // Preserve microseconds: page commits can occur within the same millisecond.
-function timestamp(value?: string | null) {
+export function documentEventTimestamp(value?: string | null) {
   if (!value) return null
   const milliseconds = Date.parse(value)
   if (!Number.isFinite(milliseconds)) return null
@@ -26,7 +26,7 @@ export function applyDocumentEvent(document: Document, event: DocumentStatusEven
 }
 
 export function reconcileDocumentEvent(document: Document, event: DocumentStatusEvent): Document | null {
-  const nextTime = timestamp(event.updated_at), currentTime = timestamp(document.updated_at)
+  const nextTime = documentEventTimestamp(event.updated_at), currentTime = documentEventTimestamp(document.updated_at)
   if (nextTime !== null && currentTime !== null && nextTime < currentTime) return null
   const sameAttempt = event.processing_attempt_id === undefined ||
     event.processing_attempt_id === document.processing_attempt_id
