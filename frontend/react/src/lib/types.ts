@@ -16,7 +16,9 @@ export type DocumentStatus =
   | string
 
 export type DocumentProcessingProgress = {
-  stage?: 'queued' | 'extracting' | 'ocr' | 'chunking' | 'embedding' | 'ready' | 'failed'
+  stage?: 'queued' | 'extracting' | 'ocr' | 'chunking' | 'embedding' | 'ready' | 'failed' | 'cancelled'
+  started_at?: string | null
+  finished_at?: string | null
   completed_pages?: number
   total_pages?: number
   current_page?: number | null

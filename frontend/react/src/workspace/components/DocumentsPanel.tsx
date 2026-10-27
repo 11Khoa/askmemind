@@ -1,5 +1,5 @@
 import {
-  ChevronRight, FileText, Library, LoaderCircle, RotateCw, Search, Upload, X, Trash2,
+  ChevronRight, FileText, Library, LoaderCircle, RotateCw, Search, Upload, X, Trash2, Square,
 } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
@@ -16,6 +16,8 @@ type DocumentsPanelProps = {
   open: boolean
   uploading: boolean
   retryingIds: ReadonlySet<string>
+  cancellingIds: ReadonlySet<string>
+  onCancel: (documentId: string) => void
   onClose: () => void
   onSelectDocument: (documentId: string | null) => void
   onUpload: (file: File) => void
@@ -39,6 +41,8 @@ export function DocumentsPanel({
   open,
   uploading,
   retryingIds,
+  cancellingIds,
+  onCancel,
   onClose,
   onSelectDocument,
   onUpload,
@@ -105,8 +109,11 @@ export function DocumentsPanel({
 
         {filteredDocuments.map((document) => {
           const isReady = ['ready', 'completed'].includes(document.status)
-          const failed = ['processing_failed', 'failed'].includes(document.status)
+          const cancelled = document.status === 'cancelled'
+          const failed = ['processing_failed', 'failed', 'cancelled'].includes(document.status)
+          const processing = ['processing', 'uploaded'].includes(document.status)
           const retrying = retryingIds.has(document.id)
+          const cancelling = cancellingIds.has(document.id)
           return (
             <div key={document.id} className="document-row">
               <button
@@ -129,13 +136,19 @@ export function DocumentsPanel({
               </button>
               {failed && (
                 <button className="document-retry" disabled={retrying}
-                  title={t('documents.retryTitle', { filename: document.original_filename })}
-                  aria-label={t('documents.retryTitle', { filename: document.original_filename })}
+                  title={t(cancelled ? 'documents.resumeTitle' : 'documents.retryTitle', { filename: document.original_filename })}
+                  aria-label={t(cancelled ? 'documents.resumeTitle' : 'documents.retryTitle', { filename: document.original_filename })}
                   onClick={() => onRetry(document.id)}>
                   {retrying ? <LoaderCircle size={14} className="spin" /> : <RotateCw size={14} />}
-                  {retrying ? t('documents.retrying') : t('documents.retry')}
+                  {retrying ? t('documents.retrying') : t(cancelled ? 'documents.resume' : 'documents.retry')}
                 </button>
               )}
+              {processing && <button className="document-cancel" disabled={cancelling || retrying}
+                aria-label={t('documents.cancelTitle', { filename: document.original_filename })}
+                onClick={() => onCancel(document.id)}>
+                {cancelling ? <LoaderCircle size={14} className="spin" /> : <Square size={13} />}
+                {t(cancelling ? 'documents.cancelling' : 'documents.cancel')}
+              </button>}
               {canDelete && <button className="icon-button delete-action" disabled={busy || retrying}
                 aria-label={t('documents.deleteNamed', { filename: document.original_filename })}
                 onClick={() => onDelete(document)}><Trash2 size={15} /></button>}

@@ -1313,3 +1313,6 @@ select:focus-visible {
 .document-feedback small { display: block; margin-top: 4px; }
 .document-feedback progress { display: block; width: 100%; height: 7px; margin-top: 7px; accent-color: #477950; }
 .document-feedback--error { color: #9a3e31; }
+.document-elapsed { display: block; margin-top: 5px; color: #69716e; font-variant-numeric: tabular-nums; }
+.document-cancel { display: inline-flex; align-items: center; gap: 6px; margin: 0 8px 6px 52px; padding: 5px 9px; border: 1px solid var(--line); border-radius: 4px; background: white; color: #825941; font-size: 12px; }
+.status--cancelled { background: #f1eee9; color: #825941; }

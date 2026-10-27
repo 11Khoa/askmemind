@@ -216,3 +216,9 @@ deploying this frontend. No additional frontend environment variable is needed.
 
 Validation: `npm run build`, `npm run lint`, `npm test`, and
 `npm run test:e2e -- e2e/document-progress.spec.ts` (desktop/mobile).
+
+Elapsed time uses server attempt timestamps and a local one-second display timer;
+no extra API polling is introduced. Owners can cancel a processing file in the
+workspace; admins can cancel from the document table. Cancelled rows keep saved
+work and offer Resume in the owner's workspace. An in-flight provider request may
+finish before the worker exits, but its late result cannot change cancellation.

@@ -44,6 +44,8 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
   const documentEventsRef = useRef(new Map<string, DocumentStatusEvent>())
   const retryingRef = useRef(new Set<string>())
   const [retryingIds, setRetryingIds] = useState<ReadonlySet<string>>(new Set())
+  const cancellingRef = useRef(new Set<string>())
+  const [cancellingIds, setCancellingIds] = useState<ReadonlySet<string>>(new Set())
   const abortRef = useRef<AbortController | null>(null)
   const [chats, setChats] = useState<Chat[]>([])
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -132,6 +134,8 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
           filename: updatedDocument.original_filename,
         }),
       })
+    } else if (event.status === 'cancelled') {
+      setNotice({ kind: 'success', message: t('documents.cancelledNotice', { filename: updatedDocument.original_filename }) })
     } else if (FAILED_STATUSES.has(event.status)) {
       setNotice({
         kind: 'error',
@@ -396,6 +400,25 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
     }
   }
 
+  async function cancelDocument(documentId: string) {
+    if (cancellingRef.current.has(documentId)) return
+    cancellingRef.current.add(documentId)
+    setCancellingIds(new Set(cancellingRef.current))
+    try {
+      const document = await api.cancelDocument(documentId)
+      receiveDocumentEvent({ ...document, document_id: document.id })
+    } catch (caught) {
+      handleError(caught)
+      try {
+        const document = await api.getDocument(documentId)
+        receiveDocumentEvent({ ...document, document_id: document.id })
+      } catch { /* Keep the current row until reconciliation succeeds. */ }
+    } finally {
+      cancellingRef.current.delete(documentId)
+      setCancellingIds(new Set(cancellingRef.current))
+    }
+  }
+
   if (loading) {
     return (
       <main className="loading-screen">
@@ -507,6 +530,8 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
         open={documentsOpen}
         uploading={uploading}
         retryingIds={retryingIds}
+        cancellingIds={cancellingIds}
+        onCancel={(documentId) => void cancelDocument(documentId)}
         connectionState={documentConnection}
         canDelete={user?.role === 'admin'}
         busy={sending || deleting}

@@ -1,6 +1,6 @@
 import type { Document, DocumentStatusEvent, DocumentProcessingProgress } from './types'
 
-const terminal = new Set(['ready', 'completed', 'failed', 'processing_failed'])
+const terminal = new Set(['ready', 'completed', 'failed', 'processing_failed', 'cancelled'])
 const errors = new Set(['ocr_timeout', 'ocr_page_limit', 'ocr_models', 'no_text',
   'file_missing', 'embedding_failed', 'processing_failed'])
 
@@ -20,7 +20,8 @@ export function applyDocumentEvent(document: Document, event: DocumentStatusEven
     error_message: event.error_message,
     processing_progress: event.processing_progress === undefined
       ? document.processing_progress : event.processing_progress,
-    processing_attempt_id: event.processing_attempt_id ?? document.processing_attempt_id,
+    processing_attempt_id: event.processing_attempt_id === undefined
+      ? document.processing_attempt_id : event.processing_attempt_id,
     updated_at: event.updated_at ?? document.updated_at,
   }
 }
@@ -59,4 +60,19 @@ export function stageCounter(progress: DocumentProcessingProgress) {
   if (typeof total !== 'number' || !Number.isFinite(total) || total <= 0) return null
   return { total, completed: typeof completed === 'number' && Number.isFinite(completed)
     ? Math.min(total, Math.max(0, completed)) : 0 }
+}
+
+export function elapsedProcessingSeconds(progress: DocumentProcessingProgress | null | undefined, now: number): number | null {
+  const started = Date.parse(progress?.started_at || '')
+  const finished = progress?.finished_at ? Date.parse(progress.finished_at) : now
+  if (!Number.isFinite(started) || !Number.isFinite(finished)) return null
+  return Math.max(0, Math.floor((finished - started) / 1000))
+}
+
+export function formatProcessingDuration(seconds: number): string {
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor(seconds / 60) % 60
+  const remainder = Math.floor(seconds) % 60
+  return [ ...(hours ? [String(hours).padStart(2, '0')] : []),
+    String(minutes).padStart(2, '0'), String(remainder).padStart(2, '0') ].join(':')
 }

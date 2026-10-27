@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { processingErrorCode, reconcileDocumentEvent, stageCounter } from '../src/lib/documentProgress'
+import { elapsedProcessingSeconds, formatProcessingDuration, processingErrorCode, reconcileDocumentEvent, stageCounter } from '../src/lib/documentProgress'
 import type { Document, DocumentStatusEvent } from '../src/lib/types'
 
 const document: Document = {
@@ -48,4 +48,22 @@ it('clamps counters and switches to chunk progress for embedding', () => {
   expect(stageCounter({ stage: 'ocr', completed_pages: 200, total_pages: 144 })).toEqual({ completed: 144, total: 144 })
   expect(stageCounter({ stage: 'embedding', completed_chunks: 3, total_chunks: 6 })).toEqual({ completed: 3, total: 6 })
   expect(stageCounter({ total_pages: NaN })).toBeNull()
+})
+
+it('freezes elapsed time at server finish time and formats long processing durations', () => {
+  const progress = { started_at: '2026-10-27T00:00:00Z', finished_at: '2026-10-27T00:01:05Z' }
+  expect(elapsedProcessingSeconds(progress, Date.parse('2026-10-27T12:00:00Z'))).toBe(65)
+  expect(elapsedProcessingSeconds({ started_at: progress.started_at }, Date.parse('2026-10-27T00:00:20Z'))).toBe(20)
+  expect(elapsedProcessingSeconds({}, Date.now())).toBeNull()
+  expect(formatProcessingDuration(65)).toBe('01:05')
+  expect(formatProcessingDuration(3661)).toBe('01:01:01')
+})
+
+it('clears the attempt token on cancellation and permits a newer resume', () => {
+  const cancelled = reconcileDocumentEvent(document, { ...event, status: 'cancelled',
+    processing_attempt_id: null, processing_progress: { stage: 'cancelled' } })!
+  expect(cancelled.processing_attempt_id).toBeNull()
+  expect(reconcileDocumentEvent(cancelled, { ...event, updated_at: document.updated_at })).toBeNull()
+  expect(reconcileDocumentEvent(cancelled, { ...event, updated_at: '2026-10-27T00:02:00Z',
+    processing_attempt_id: 'resume', processing_progress: { stage: 'queued' } })?.status).toBe('processing')
 })

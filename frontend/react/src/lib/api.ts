@@ -85,6 +85,10 @@ export const api = {
     return request<Document>(`/documents/${documentId}/retry`, { method: 'POST' }, true)
   },
 
+  cancelDocument(documentId: string) {
+    return request<Document>(`/documents/${documentId}/cancel`, { method: 'POST' }, true)
+  },
+
   uploadDocument(file: File) {
     const body = new FormData()
     body.append('file', file)

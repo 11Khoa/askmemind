@@ -116,6 +116,15 @@ export const en = {
     showDocuments: 'Show documents',
   },
   documents: {
+    elapsed: 'Elapsed: {{duration}}',
+    duration: 'Duration: {{duration}}',
+    cancel: 'Cancel',
+    cancelling: 'Cancelling…',
+    cancelTitle: 'Cancel processing {{filename}}',
+    cancelled: 'Processing cancelled. Saved work is kept.',
+    cancelledNotice: 'Processing {{filename}} was cancelled.',
+    resume: 'Resume',
+    resumeTitle: 'Resume processing {{filename}}',
     progress: {
       queued: 'Waiting for a processing worker…',
       extracting: 'Reading page {{page}} of {{total}}',
@@ -164,6 +173,7 @@ export const en = {
     retryTitle: 'Retry processing {{filename}}',
     retrying: 'Retrying...',
     status: {
+      cancelled: 'Cancelled',
       deleting: 'Deletion pending — retry delete',
       uploaded: 'Uploaded',
       processing: 'Processing',

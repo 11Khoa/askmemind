@@ -54,6 +54,7 @@ function AdminDashboard({ onBack }: { onBack: () => void }) {
   const [createOpen, setCreateOpen] = useState(false)
   const [pending, setPending] = useState<Pending | null>(null)
   const [busy, setBusy] = useState(false)
+  const [cancelling, setCancelling] = useState<string | null>(null)
   const [actionError, setActionError] = useState('')
   const [source, setSource] = useState<{ citation: Citation; filename: string; documentOnly: boolean } | null>(null)
   const [chat, setChat] = useState<AdminChat | null>(null)
@@ -136,6 +137,19 @@ function AdminDashboard({ onBack }: { onBack: () => void }) {
   }, [key, tab, page, query, owner?.id])
 
   function changeTab(next: AdminTab) { setTab(next); setPage(1); setSearch(''); setQuery('') }
+  async function cancelProcessing(document: AdminDocument) {
+    if (cancelling) return
+    setCancelling(document.id)
+    setActionError('')
+    try {
+      await api.cancelDocument(document.id)
+      // Refresh this exact query scope and abort older in-flight snapshots.
+      setRevision((value) => value + 1)
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : 'Could not cancel document processing')
+      if (caught instanceof ApiError && (caught.status === 401 || caught.status === 403)) setRevision((value) => value + 1)
+    } finally { setCancelling(null) }
+  }
   function ask(action: Pending) { setActionError(''); setPending(action) }
   function openDocument(document: AdminDocument) {
     setSource({ filename: document.original_filename, documentOnly: true, citation: {
@@ -176,6 +190,7 @@ function AdminDashboard({ onBack }: { onBack: () => void }) {
       <button onClick={() => setRevision((value) => value + 1)}>Refresh</button>
       {tab === 'users' && <button onClick={() => setCreateOpen(true)}>Create user</button>}
     </div>
+    {actionError && !pending && <p role="alert">{actionError}</p>}
     {owner && tab !== 'users' && <p className="admin-filter">Showing user: {owner.email} <button onClick={() => { setOwner(null); setPage(1) }}>Clear user filter</button></p>}
     {currentError ? <p role="alert">{currentError}</p> : !data ? <p role="status">Loading administration…</p> : <>
       {data.items.length === 0 ? <p>No records found.</p> : <div className="admin-table-wrap" role="region" aria-label="Administration records" tabIndex={0}><table>
@@ -196,6 +211,10 @@ function AdminDashboard({ onBack }: { onBack: () => void }) {
           if (tab === 'documents') {
             const document = row as AdminDocument
             return <tr key={document.id}><td>{document.owner_email}</td><td>{document.original_filename}<small>{document.id}</small></td><td>{document.status}<DocumentProcessingFeedback document={document} /></td><td className="admin-actions">
+              {['processing', 'uploaded'].includes(document.status) && <button disabled={Boolean(cancelling)}
+                aria-label={`Cancel processing ${document.original_filename}`} onClick={() => void cancelProcessing(document)}>
+                {cancelling === document.id ? 'Cancelling…' : 'Cancel processing'}
+              </button>}
               <button onClick={() => openDocument(document)}>View PDF</button><button className="danger-text" onClick={() => ask({ kind: 'document', id: document.id, name: `${document.original_filename} (${document.owner_email})` })}>Delete document</button></td></tr>
           }
           const conversation = row as AdminChat
