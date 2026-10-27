@@ -27,7 +27,7 @@
 @media(max-width: 600px) { .admin-header { align-items: flex-start; } .admin-header h1 { font-size: 23px; } .admin-pagination { gap: 8px; flex-wrap: wrap; } }
 
 .admin-dashboard { display: grid; grid-template-columns: 220px minmax(0, 1fr); padding: 0; background: #f8fafb; color: #253447; }
-.admin-sidebar { display: flex; flex-direction: column; gap: 20px; padding: 30px 16px; border-right: 1px solid #e3e8ed; background: #fff; min-height: 100dvh; }
+.admin-sidebar { display: flex; flex-direction: column; gap: 20px; padding: 30px 10px; border-right: 1px solid #e3e8ed; background: #fff; min-height: 100dvh; }
 .admin-brand { display: flex; align-items: center; gap: 10px; padding: 0 12px; color: #087e75; font-size: 21px; }
 .admin-brand strong { color: #203348; letter-spacing: -.6px; }
 .admin-section-label { padding: 12px 12px 0; margin: 0; color: #81909e; text-transform: uppercase; font-size: 10px; font-weight: 700; letter-spacing: 1.2px; }
@@ -58,7 +58,7 @@
 .admin-toolbar form > svg { position: absolute; left: 12px; color: #8a98a5; pointer-events: none; }
 .admin-dashboard .admin-toolbar input { width: 100%; min-width: 0; padding: 12px 12px 12px 39px; border-color: #dce3e9; font-size: 13px; }
 .admin-dashboard .admin-toolbar > button { display: inline-flex; gap: 7px; align-items: center; }
-.admin-dashboard .admin-table-wrap { border: 0; border-radius: 0; }
+.admin-dashboard .admin-table-wrap { border: 0; border-radius: 0; max-height: 55dvh;}
 .admin-dashboard table { min-width: 900px; font-size: 12px; }
 .admin-dashboard th { padding: 16px; background: #f6f8fa; color: #69778b; font-size: 10px; letter-spacing: .7px; text-transform: uppercase; }
 .admin-dashboard td { padding: 18px 16px; vertical-align: middle; border-color: #edf0f3; }
