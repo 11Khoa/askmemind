@@ -45,6 +45,7 @@ The project focuses on the parts of RAG that usually decide whether it works out
 **Retrieval and answering**
 - Page-aware PDF extraction (PyMuPDF) with chunks that keep page and character offsets, so citations are traceable.
 - Local CPU OCR fallback for scanned PDF pages using RapidOCR + ONNX Runtime (Vietnamese/English). See [setup, limits and rollout](backend/docs/pdf_ocr.md).
+- Resumable per-page extraction checkpoints and persisted live processing progress. See [migration and retry behavior](backend/docs/document_progress.md).
 - Three retrieval strategies: pgvector similarity, PostgreSQL full-text search (GIN index), and **hybrid search using weighted Reciprocal Rank Fusion (RRF)**.
 - Optional heuristic reranker over a larger candidate pool.
 - Optional bounded retrieval retry: when evidence is weak, the query is rewritten into keywords and retried (capped number of attempts, no extra LLM call).

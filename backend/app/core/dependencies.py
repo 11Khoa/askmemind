@@ -172,6 +172,7 @@ def require_admin(user: Annotated[User, Depends(get_current_user)]) -> User:
 
 
 def build_document_processing_service(db: Session) -> DocumentProcessingService:
+    from app.services.document_progress import DocumentProgress
     chunk_repository = ChunkRepository(db=db)
     document_repository = DocumentRepository(db=db)
 
@@ -188,6 +189,7 @@ def build_document_processing_service(db: Session) -> DocumentProcessingService:
         embedding_service=embedding_service,
         unit_of_work=db,
         embedding_batch_size=settings.embedding_batch_size,
+        checkpoint_factory=lambda document: DocumentProgress(document_repository, document),
     )
 
 
@@ -244,6 +246,7 @@ def process_document_in_background(
                             "status": document.status,
                             "page_count": document.page_count,
                             "error_message": document.error_message,
+                            "processing_progress": document.processing_progress,
                             "updated_at": (
                                 document.updated_at.isoformat()
                                 if document.updated_at

@@ -313,6 +313,7 @@ def test_process_document_in_background_marks_failed_and_closes_session(
                 "status": DocumentStatus.PROCESSING_FAILED.value,
                 "page_count": None,
                 "error_message": "boom",
+                "processing_progress": None,
                 "processing_attempt_id": None,
                 "updated_at": None,
             },
