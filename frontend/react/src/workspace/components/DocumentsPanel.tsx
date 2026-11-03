@@ -16,6 +16,7 @@ type DocumentsPanelProps = {
   selectedDocumentId: string | null
   open: boolean
   uploading: boolean
+  uploadDisabled?: boolean
   retryingIds: ReadonlySet<string>
   cancellingIds: ReadonlySet<string>
   onCancel: (documentId: string) => void
@@ -41,6 +42,7 @@ export function DocumentsPanel({
   selectedDocumentId,
   open,
   uploading,
+  uploadDisabled,
   retryingIds,
   cancellingIds,
   onCancel,
@@ -80,7 +82,7 @@ export function DocumentsPanel({
 
       <button className="upload-button"
         onClick={() => fileInputRef.current?.click()}
-        disabled={uploading}>
+        disabled={uploading || uploadDisabled}>
         {uploading
           ? <LoaderCircle className="spin" size={17} />
           : <Upload size={17} />}

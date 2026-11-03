@@ -33,12 +33,12 @@ function fetchResponse(path: string, options: RequestInit, accessToken?: string)
   if (options.body && !(options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json')
   }
-  if (COOKIE_AUTH_PATHS.has(path)) headers.set('X-CSRF-Protection', '1')
+  if (COOKIE_AUTH_PATHS.has(path) || !['GET', 'HEAD', 'OPTIONS'].includes((options.method || 'GET').toUpperCase())) headers.set('X-CSRF-Protection', '1')
   return fetch(`${API_BASE_URL}${path}`, {
     ...options,
     headers,
     credentials: 'include',
-    ...(COOKIE_AUTH_PATHS.has(path) ? { cache: 'no-store' as const } : {}),
+    ...(COOKIE_AUTH_PATHS.has(path) || path.startsWith('/demo/') ? { cache: 'no-store' as const } : {}),
   })
 }
 

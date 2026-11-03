@@ -8,6 +8,7 @@ import { ApiError, restoreSession } from '../lib/http'
 import { session } from '../lib/session'
 import { AuthView } from './AuthView'
 import { Workspace } from './Workspace'
+import { DemoWorkspace } from './components/DemoWorkspace'
 import { AdminPanel } from './AdminPanel'
 import './workspace.css'
 
@@ -106,7 +107,7 @@ export default function AppRoot() {
       ) : view === 'admin' ? (
         <AdminPanel onBack={() => navigateView('workspace')} />
       ) : (
-        <Workspace onLogout={() => { void logout() }} onAdmin={() => navigateView('admin')} />
+        <DemoWorkspace onLogout={() => { void logout() }}><Workspace onLogout={() => { void logout() }} onAdmin={() => navigateView('admin')} /></DemoWorkspace>
       )}
       <Analytics />
     </>

@@ -231,3 +231,29 @@ show the same timestamp. Retrying or receiving progress events does not change t
 upload time. Unknown timestamps or durations display a dash rather than a guessed
 value. The document summary shows the total matching the current server query;
 Ready, Processing and Failed counts describe only the currently loaded page.
+
+## Shared demo accounts
+
+The backend marks accounts with `is_demo`; normal users do not call demo APIs or
+see the privacy notice. The `DemoWorkspace` boundary checks status before mounting
+Workspace. Upload/chat actions refresh status and require explicit acceptance of
+the current notice version. Session identity stays in a server-created signed
+HttpOnly cookie, never localStorage/sessionStorage or a request body.
+
+Demo users can confirm deletion of their current session only. Success/expiry
+unmounts Workspace, aborting its streams and clearing all React-held documents,
+messages, selections and PDF viewers. Failed cleanup remains blocked with a retry
+control. A new session is bootstrapped explicitly, without extending an active
+session. Same-browser tabs get an identifier-free reset broadcast.
+
+Administrators find accounts through the existing email search and open **Demo
+settings**. Changes/deletion use user UUIDs, require the existing browser CSRF
+policy, and remain server-authorized. Retention is 15–1440 minutes; mode changes
+invalidate login sessions. Existing demo sessions retain their original deadlines.
+Delete all demo data before turning demo mode off. Profile/avatar editing is not
+part of this change.
+
+Deploy the backend migration/API/workers and one Celery Beat scheduler before
+this frontend. See `backend/docs/demo_isolation.md` on `feature/backend` for the
+schema, quotas, cleanup timing and deployment commands. No new frontend env is
+required beyond the existing API URL and credentialed cookie/CORS setup.

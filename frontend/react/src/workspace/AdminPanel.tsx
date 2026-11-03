@@ -1,4 +1,5 @@
 import { ArrowLeft, Library, Users, Files, MessagesSquare, Activity, Search, RefreshCw, FileText, CheckCircle2, LoaderCircle, AlertTriangle, Eye, Trash2 } from 'lucide-react'
+import { DemoAccountDialog } from './components/DemoAccountDialog'
 import { UploadedAt } from './components/UploadedAt'
 import { useEffect, useState } from 'react'
 import { DocumentProcessingFeedback } from './components/DocumentProcessingFeedback'
@@ -54,6 +55,7 @@ function AdminDashboard({ onBack }: { onBack: () => void }) {
   const [result, setResult] = useState<{ key: string; data: Page<AdminRow> } | null>(null)
   const [error, setError] = useState<{ key: string; message: string } | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+  const [demoUser, setDemoUser] = useState<User | null>(null)
   const [pending, setPending] = useState<Pending | null>(null)
   const [busy, setBusy] = useState(false)
   const [cancelling, setCancelling] = useState<string | null>(null)
@@ -230,8 +232,8 @@ function AdminDashboard({ onBack }: { onBack: () => void }) {
         <tbody>{data.items.map((row) => {
           if (tab === 'users') {
             const user = row as User
-            return <tr key={user.id}><td>{user.email}<small>{user.id}</small></td><td>{user.role}</td><td>{user.is_active ? 'Active' : 'Disabled'}</td>
-              <td className="admin-actions"><button onClick={() => ask({ kind: 'role', id: user.id, name: user.email, role: user.role === 'admin' ? 'user' : 'admin' })}>{user.role === 'admin' ? 'Make user' : 'Make admin'}</button>
+            return <tr key={user.id}><td>{user.email}<small>{user.id}</small></td><td>{user.role}{user.is_demo && <small>Demo account · {user.demo_retention_minutes} min</small>}</td><td>{user.is_active ? 'Active' : 'Disabled'}</td>
+              <td className="admin-actions"><button onClick={() => setDemoUser(user)}>Demo settings</button><button onClick={() => ask({ kind: 'role', id: user.id, name: user.email, role: user.role === 'admin' ? 'user' : 'admin' })}>{user.role === 'admin' ? 'Make user' : 'Make admin'}</button>
                 <button onClick={() => ask({ kind: 'active', id: user.id, name: user.email, active: !user.is_active })}>{user.is_active ? 'Disable' : 'Enable'}</button>
                 {(['documents', 'chats', 'activity'] as const).map((section) => <button key={section} onClick={() => { setOwner({ id: user.id, email: user.email }); changeTab(section) }}>View {section}</button>)}</td></tr>
           }
@@ -276,6 +278,7 @@ function AdminDashboard({ onBack }: { onBack: () => void }) {
     </div>
     <p className="admin-notice">Administrator access: you can inspect all users’ documents, conversations and recorded activity. Your actions are audited.</p>
     </section>
+    {demoUser && <DemoAccountDialog user={demoUser} onClose={() => setDemoUser(null)} onSaved={() => setRevision((value) => value + 1)} />}
     {createOpen && <CreateUser onClose={() => setCreateOpen(false)} onCreated={() => { setCreateOpen(false); setPage(1); setRevision((value) => value + 1) }} />}
     {pending && <ActionDialog title={`Confirm: ${pending.name}`} busy={busy} onClose={() => setPending(null)}>
       <p>{pending.kind === 'role' ? `Change this account to role ${pending.role}? Existing sessions will be invalidated.` : pending.kind === 'active' ? `${pending.active ? 'Enable' : 'Disable'} this account? Existing sessions will be invalidated.` : `Permanently delete this ${pending.kind}? This cannot be undone.`}</p>

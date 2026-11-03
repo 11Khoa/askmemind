@@ -2,6 +2,8 @@ import { BookOpenText, LoaderCircle } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { DemoSessionBanner } from './components/DemoWorkspace'
+import { useDemo } from './components/demoContext'
 import { isTransientConnectionError } from '../lib/documentEvents'
 import { reconcileDocumentEvent } from '../lib/documentProgress'
 import type { DocumentConnectionState } from '../lib/documentEvents'
@@ -37,6 +39,7 @@ function isReadyDocument(document: Document) {
 
 export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
   const { t } = useTranslation()
+  const { beforeAction, status: demoStatus, expire } = useDemo()
   const [user, setUser] = useState<User | null>(null)
   const [documents, setDocuments] = useState<Document[]>([])
   const [documentConnection, setDocumentConnection] = useState<DocumentConnectionState>('connecting')
@@ -69,6 +72,7 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
 
 
   const handleError = useCallback((caught: unknown) => {
+    if (caught instanceof ApiError && caught.status === 410) { expire(); return }
     if (caught instanceof ApiError && caught.status === 401) {
       return
     }
@@ -76,7 +80,7 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
       kind: 'error',
       message: caught instanceof Error ? caught.message : t('common.genericError'),
     })
-  }, [t])
+  }, [t, expire])
 
   useEffect(() => {
     documentsRef.current = documents
@@ -218,6 +222,7 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
   }
 
   async function createChat(title: string | null = null) {
+    if (!(await beforeAction())) return null
     try {
       const chat = await api.createChat(title)
       setChats((current) => [chat, ...current])
@@ -234,6 +239,7 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
   async function sendQuestion() {
     const content = question.trim()
     if (!content || sending) return
+    if (!(await beforeAction())) return
     setQuestion('')
     setNotice(null)
     setSending(true)
@@ -322,6 +328,7 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
   }
 
   async function uploadDocument(file: File) {
+    if (!(await beforeAction(true))) return
     if (file.type !== 'application/pdf') {
       setNotice({ kind: 'error', message: t('documents.choosePdf') })
       return
@@ -369,6 +376,7 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
   }
 
   async function retryDocument(documentId: string) {
+    if (!(await beforeAction(true))) return
     if (retryingRef.current.has(documentId)) return
     retryingRef.current.add(documentId)
     setRetryingIds(new Set(retryingRef.current))
@@ -497,6 +505,7 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
           onToggleDocuments={() => setDocumentsOpen((current) => !current)}
         />
 
+        <DemoSessionBanner />
         <MessageList
           loading={loadingMessages}
           sending={sending && !streamingHasContent}
@@ -529,6 +538,7 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
         selectedDocumentId={selectedDocumentId}
         open={documentsOpen}
         uploading={uploading}
+        uploadDisabled={demoStatus?.is_demo && !demoStatus.upload_enabled}
         retryingIds={retryingIds}
         cancellingIds={cancellingIds}
         onCancel={(documentId) => void cancelDocument(documentId)}

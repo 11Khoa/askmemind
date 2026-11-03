@@ -1,4 +1,7 @@
 export type User = {
+  is_demo?: boolean
+  demo_retention_minutes?: number
+  demo_upload_enabled?: boolean
   role: 'user' | 'admin'
   id: string
   email: string
