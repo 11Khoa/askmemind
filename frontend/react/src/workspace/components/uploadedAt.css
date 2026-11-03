@@ -1,0 +1,7 @@
+.uploaded-at { display: inline-flex; align-items: flex-start; gap: 5px; font-size: 12px; line-height: 1.6; color: #526374; font-variant-numeric: tabular-nums; }
+.uploaded-at-time { color: #8995a2; font-size: 11px; }
+.uploaded-at--compact { font-size: 10px; flex-wrap: wrap; color: #81908b; }
+.uploaded-at--compact svg { flex: 0 0 auto; margin-top: 2px; }
+.uploaded-at--compact > span { flex: 1; min-width: 0; }
+.uploaded-at--compact .uploaded-at-time { font-size: inherit; color: inherit; }
+.document-uploaded { padding: 0 12px 12px; }

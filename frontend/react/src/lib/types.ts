@@ -1,4 +1,7 @@
 export type User = {
+  is_demo?: boolean
+  demo_retention_minutes?: number
+  demo_upload_enabled?: boolean
   role: 'user' | 'admin'
   id: string
   email: string
@@ -15,7 +18,23 @@ export type DocumentStatus =
   | 'failed'
   | string
 
+export type DocumentProcessingProgress = {
+  stage?: 'queued' | 'extracting' | 'ocr' | 'chunking' | 'embedding' | 'ready' | 'failed' | 'cancelled'
+  started_at?: string | null
+  finished_at?: string | null
+  completed_pages?: number
+  total_pages?: number
+  current_page?: number | null
+  reused_pages?: number
+  completed_chunks?: number
+  total_chunks?: number
+  failed_stage?: string | null
+  error_code?: string | null
+}
+
 export type DocumentStatusEvent = {
+  user_id?: string
+  processing_progress?: DocumentProcessingProgress | null
   updated_at?: string | null
   processing_attempt_id?: string | null
   document_id: string
@@ -25,6 +44,7 @@ export type DocumentStatusEvent = {
 }
 
 export type Document = {
+  processing_progress?: DocumentProcessingProgress | null
   processing_attempt_id?: string | null
   id: string
   user_id: string

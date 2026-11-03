@@ -10,6 +10,21 @@ const unauthorized = () => json({ detail: 'Token expired' }, 401)
 const fetchMock = vi.fn<typeof fetch>()
 const refreshCalls = () => fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/auth/refresh'))
 
+it('refreshes an expired access token before reopening document events', async () => {
+  fetchMock.mockResolvedValueOnce(unauthorized()).mockResolvedValueOnce(json(rotated))
+    .mockResolvedValueOnce(new Response('event: document_status\ndata: {"document_id":"id","status":"ready"}\n\n', {
+      headers: { 'Content-Type': 'text/event-stream' },
+    }))
+  const onEvent = vi.fn(), onError = vi.fn()
+  const stop = api.subscribeDocumentEvents(onEvent, onError)
+  try {
+    await vi.waitFor(() => expect(onEvent).toHaveBeenCalledOnce())
+    expect(refreshCalls()).toHaveLength(1)
+    expect(new Headers(fetchMock.mock.calls.at(-1)?.[1]?.headers).get('Authorization')).toBe('Bearer new-access')
+    expect(onError).not.toHaveBeenCalled()
+  } finally { stop() }
+})
+
 beforeEach(() => {
   session.set({ ...original })
   vi.stubGlobal('fetch', fetchMock)

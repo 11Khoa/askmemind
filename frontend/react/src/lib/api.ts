@@ -2,64 +2,18 @@ import type {
   Chat,
   ChatMessage,
   Document,
-  DocumentStatusEvent,
   User,
 } from './types'
 import { ApiError, authenticatedResponse, loginSession, logoutSession, request } from './http'
 
 export { ApiError } from './http'
-
-type SseFrame = {
-  event: string
-  data: unknown
-}
+import { readSseStream } from './sse'
+import { subscribeDocumentEvents } from './documentEvents'
 
 type QuestionStreamHandlers = {
   onToken: (token: string) => void
   onReplace: (content: string) => void
   onFinal: (message: ChatMessage) => void
-}
-
-function parseSseFrame(frame: string): SseFrame | null {
-  const event = frame
-    .split('\n')
-    .find((line) => line.startsWith('event:'))
-    ?.slice(6)
-    .trim() || 'message'
-  const data = frame
-    .split('\n')
-    .filter((line) => line.startsWith('data:'))
-    .map((line) => line.slice(5).trimStart())
-    .join('\n')
-
-  if (!data) return null
-  return { event, data: JSON.parse(data) as unknown }
-}
-
-async function readSseStream(
-  response: Response,
-  onFrame: (frame: SseFrame) => void,
-) {
-  if (!response.body) {
-    throw new ApiError('Streaming response did not include a body', response.status)
-  }
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const frames = buffer.split('\n\n')
-    buffer = frames.pop() || ''
-
-    for (const rawFrame of frames) {
-      const frame = parseSseFrame(rawFrame)
-      if (frame) onFrame(frame)
-    }
-  }
 }
 
 export function isAbortError(error: unknown) {
@@ -100,8 +54,8 @@ export const api = {
     return request<User>('/auth/me', {}, true)
   },
 
-  listDocuments() {
-    return request<Document[]>('/documents', {}, true)
+  listDocuments(signal?: AbortSignal) {
+    return request<Document[]>('/documents', { signal }, true)
   },
 
   deleteDocument(documentId: string) {
@@ -131,6 +85,10 @@ export const api = {
     return request<Document>(`/documents/${documentId}/retry`, { method: 'POST' }, true)
   },
 
+  cancelDocument(documentId: string) {
+    return request<Document>(`/documents/${documentId}/cancel`, { method: 'POST' }, true)
+  },
+
   uploadDocument(file: File) {
     const body = new FormData()
     body.append('file', file)
@@ -141,30 +99,7 @@ export const api = {
     )
   },
 
-  subscribeDocumentEvents(
-    onEvent: (event: DocumentStatusEvent) => void,
-    onError: (error: unknown) => void,
-  ) {
-    const controller = new AbortController()
-
-    void (async () => {
-      try {
-        const response = await authenticatedResponse('/documents/events', {
-          signal: controller.signal,
-        })
-
-        await readSseStream(response, (frame) => {
-          onEvent(frame.data as DocumentStatusEvent)
-        })
-      } catch (error) {
-        if (!controller.signal.aborted && !isAbortError(error)) {
-          onError(error)
-        }
-      }
-    })()
-
-    return () => controller.abort()
-  },
+  subscribeDocumentEvents,
 
   listChats() {
     return request<Chat[]>('/chats', {}, true)
