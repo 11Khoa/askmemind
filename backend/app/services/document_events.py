@@ -26,13 +26,13 @@ class DocumentEventBroker:
     def _channel(self, user_id: uuid.UUID | str) -> str:
         return f"document-events:{user_id}"
 
-    def publish(self, user_id: uuid.UUID | str, payload: dict[str, Any]) -> None:
+    def publish(self, user_id: uuid.UUID | str, payload: dict[str, Any], demo_session_id=None) -> None:
         client = redis.Redis.from_url(
             self.redis_url, socket_timeout=2, socket_connect_timeout=2
         )
         try:
             client.publish(
-                self._channel(user_id),
+                self._channel(f"{user_id}:demo:{demo_session_id}" if demo_session_id else user_id),
                 json.dumps(payload, default=str),
             )
             # The global channel carries processing metadata only, never source
@@ -57,20 +57,22 @@ class DocumentEventBroker:
         self,
         user_id: uuid.UUID | str,
         request: Request,
+        demo_session_id=None,
+        max_seconds=None,
     ) -> AsyncIterator[str]:
-        return self._stream_channel(self._channel(user_id), request)
+        return self._stream_channel(self._channel(f"{user_id}:demo:{demo_session_id}" if demo_session_id else user_id), request, max_seconds)
 
     def stream_admin(self, request: Request) -> AsyncIterator[str]:
         return self._stream_channel(self.admin_channel, request)
 
-    async def _stream_channel(self, channel: str, request: Request) -> AsyncIterator[str]:
+    async def _stream_channel(self, channel: str, request: Request, max_seconds=None) -> AsyncIterator[str]:
         client = async_redis.Redis.from_url(
             self.redis_url, socket_connect_timeout=5, socket_timeout=30,
         )
         pubsub = client.pubsub()
         try:
             await pubsub.subscribe(channel)
-            deadline = monotonic() + self.max_stream_seconds
+            deadline = monotonic() + min(self.max_stream_seconds, max_seconds if max_seconds is not None else self.max_stream_seconds)
             yield ": connected\n\n"
             while monotonic() < deadline and not await request.is_disconnected():
                 message = await pubsub.get_message(

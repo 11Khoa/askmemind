@@ -1,4 +1,11 @@
 import uuid
+from pydantic import BaseModel, ConfigDict, Field
+from app.models.demo_session import DemoSession
+from app.services import demo_service
+from app.services.audit_service import record_audit
+from app.core.browser_auth import require_browser_csrf
+from app.models.refresh_token import RefreshToken
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request, HTTPException
@@ -126,3 +133,66 @@ def list_activity(db: DB, page: PageNumber = 1, page_size: PageSize = 20,
         query = query.filter(AuditEvent.action.icontains(q, autoescape=True))
     return paginate(query.order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc()), page, page_size,
         lambda row: {**AuditRead.model_validate(row[0]).model_dump(), "actor_email": row[1], "target_email": row[2]})
+
+
+class DemoConfigUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    is_demo: bool
+    demo_retention_minutes: int = Field(ge=15, le=1440)
+    demo_upload_enabled: bool
+
+
+@router.patch("/users/{user_id}/demo-config", response_model=UserRead,
+              dependencies=[Depends(require_browser_csrf)])
+def configure_demo(user_id: uuid.UUID, payload: DemoConfigUpdate, request: Request, admin: Admin, db: DB):
+    admin_service.lock_admin(db, admin.id)
+    user = db.query(User).filter(User.id == user_id).populate_existing().with_for_update().first()
+    if user is None:
+        raise HTTPException(404, "User not found")
+    if payload.is_demo and user.role == "admin":
+        raise HTTPException(409, "An administrator account cannot be a shared demo account")
+    if user.is_demo and not payload.is_demo and db.query(DemoSession).filter(DemoSession.user_id == user.id).first():
+        raise HTTPException(409, "Delete all demo data before disabling demo mode")
+    before = {field: getattr(user, field) for field in type(payload).model_fields}
+    if user.is_demo != payload.is_demo:
+        user.token_version += 1
+        db.query(RefreshToken).filter(RefreshToken.user_id == user.id, RefreshToken.revoked_at.is_(None)).update(
+            {RefreshToken.revoked_at: datetime.now(UTC)}, synchronize_session=False)
+    for field, value in payload.model_dump().items():
+        setattr(user, field, value)
+    record_audit(db, admin.id, "admin.demo.config.update", user.id, user.id,
+                 details={"before": before, "after": payload.model_dump()})
+    db.commit()
+    request.state.audit_recorded = True
+    return user
+
+
+@router.delete("/users/{user_id}/demo-data", dependencies=[Depends(require_browser_csrf)])
+def delete_demo_data(user_id: uuid.UUID, request: Request, admin: Admin, db: DB):
+    admin_service.lock_admin(db, admin.id)
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(404, "User not found")
+    count = demo_service.cleanup_account(db, user.id, admin.id)
+    request.state.audit_recorded = True
+    return {"deleted": True, "sessions_deleted": count}
+
+
+@router.get("/users/{user_id}/demo-sessions")
+def list_demo_sessions(user_id: uuid.UUID, db: DB, page: PageNumber = 1, page_size: PageSize = 20):
+    query = db.query(DemoSession).filter(DemoSession.user_id == user_id).order_by(DemoSession.created_at.desc())
+    return paginate(query, page, page_size, lambda row: {
+        "id": row.id, "created_at": row.created_at, "expires_at": row.expires_at,
+        "notice_accepted_at": row.notice_accepted_at, "notice_version": row.notice_version,
+    })
+
+
+@router.delete("/users/{user_id}/demo-sessions/{session_id}", dependencies=[Depends(require_browser_csrf)])
+def delete_one_demo_session(user_id: uuid.UUID, session_id: uuid.UUID, request: Request, admin: Admin, db: DB):
+    admin_service.lock_admin(db, admin.id)
+    session = db.query(DemoSession).filter(DemoSession.id == session_id, DemoSession.user_id == user_id).first()
+    if session is None:
+        raise HTTPException(404, "Demo session not found")
+    demo_service.cleanup_session(db, session.id, actor_id=admin.id, action="admin.demo.session.delete")
+    request.state.audit_recorded = True
+    return {"deleted": True}

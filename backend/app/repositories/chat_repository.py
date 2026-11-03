@@ -10,12 +10,23 @@ from app.models.document import Document
 
 
 class ChatRepository:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, scope=None):
         self.db = db
+        self.scope = scope
+
+    def query(self):
+        query = self.db.query(Chat)
+        return query.filter(*self.scope.conditions(Chat)) if self.scope else query
+
+    def guard(self):
+        if self.scope:
+            self.scope.check_active(self.db, lock=True)
 
     def create_chat(self, user_id: uuid.UUID, title: str | None) -> Chat:
+        self.guard()
         chat = Chat(
             user_id=user_id,
+            demo_session_id=self.scope.demo_session_id if self.scope else None,
             title=title,
         )
 
@@ -26,7 +37,7 @@ class ChatRepository:
         return chat
 
     def get_chat_by_id(self, chat_id: uuid.UUID) -> Chat | None:
-        return self.db.get(Chat, chat_id)
+        return self.query().filter(Chat.id == chat_id).first()
 
     def delete_chat(self, chat: Chat, actor_id=None) -> None:
         if actor_id is not None:
@@ -40,11 +51,12 @@ class ChatRepository:
                              max_characters: int) -> list[dict[str, str]]:
         assistant = aliased(ChatMessage)
         scope = ChatMessage.message_metadata["document_id"].as_string()
-        turns = self.db.query(ChatMessage, assistant).join(
+        turns = self.db.query(ChatMessage, assistant).join(Chat, Chat.id == ChatMessage.chat_id).join(
             assistant, (assistant.chat_id == ChatMessage.chat_id)
             & (assistant.message_index == ChatMessage.message_index + 1)
             & (assistant.role == "assistant"),
         ).filter(
+            *(self.scope.conditions(Chat) if self.scope else ()),
             ChatMessage.chat_id == chat_id, ChatMessage.role == "user",
             assistant.message_index < before_index,
             scope == str(document_id) if document_id else scope.is_(None),
@@ -66,7 +78,7 @@ class ChatRepository:
 
     def list_chats_by_user(self, user_id: uuid.UUID) -> list[Chat]:
         return (
-            self.db.query(Chat)
+            self.query()
             .filter(Chat.user_id == user_id)
             .order_by(Chat.updated_at.desc())
             .all()
@@ -78,11 +90,12 @@ class ChatRepository:
         A question reserves two positions so its answer stays adjacent even when
         another request finishes first. Failed/cancelled requests may leave gaps.
         """
+        self.guard()
         if slots < 1:
             raise ValueError("slots must be positive")
         end_index = self.db.execute(
             update(Chat)
-            .where(Chat.id == chat_id)
+            .where(Chat.id == chat_id, *(self.scope.conditions(Chat) if self.scope else ()))
             .values(next_message_index=Chat.next_message_index + slots)
             .returning(Chat.next_message_index)
         ).scalar_one()
@@ -97,6 +110,9 @@ class ChatRepository:
         content: str,
         message_metadata: dict | None = None,
     ) -> ChatMessage:
+        self.guard()
+        if self.scope and self.get_chat_by_id(chat_id) is None:
+            raise ValueError("Chat not found")
         if role == "assistant" and message_metadata:
             source_ids = {
                 uuid.UUID(c["document_id"])
@@ -106,6 +122,7 @@ class ChatRepository:
                 # Serialize final persistence with deletion. A generation that
                 # outlives its source must not restore deleted excerpts to chat.
                 available = set(self.db.scalars(select(Document.id).where(
+                    *(self.scope.conditions(Document) if self.scope else ()),
                     Document.id.in_(source_ids), Document.status == "ready",
                     Document.user_id == select(Chat.user_id).where(Chat.id == chat_id).scalar_subquery(),
                 ).order_by(Document.id).with_for_update()).all())
@@ -124,7 +141,7 @@ class ChatRepository:
         # Keep explicit-index imports and existing repository callers compatible.
         self.db.execute(
             update(Chat)
-            .where(Chat.id == chat_id)
+            .where(Chat.id == chat_id, *(self.scope.conditions(Chat) if self.scope else ()))
             .values(next_message_index=func.greatest(
                 Chat.next_message_index, message_index + 1,
             ))
@@ -136,8 +153,8 @@ class ChatRepository:
 
     def list_messages_by_chat(self, chat_id: uuid.UUID) -> list[ChatMessage]:
         return (
-            self.db.query(ChatMessage)
-            .filter(ChatMessage.chat_id == chat_id)
+            self.db.query(ChatMessage).join(Chat, Chat.id == ChatMessage.chat_id)
+            .filter(ChatMessage.chat_id == chat_id, *(self.scope.conditions(Chat) if self.scope else ()))
             .order_by(ChatMessage.message_index.asc())
             .all()
         )

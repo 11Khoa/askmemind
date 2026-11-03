@@ -81,6 +81,12 @@ class Settings(BaseSettings):
     retrieval_min_confidence: float = Field(default=0.05, ge=0.0, le=1.0)
     citation_validation_enabled: bool = True
 
+    demo_notice_version: str = Field(default="v1", min_length=1, max_length=64)
+    demo_max_files: int = Field(default=5, ge=1, le=100)
+    demo_max_upload_size_mb: int = Field(default=10, ge=1, le=100)
+    demo_questions_per_minute: int = Field(default=10, ge=1, le=100)
+    demo_max_sessions_per_account: int = Field(default=100, ge=1, le=10000)
+
     max_upload_size_mb: int = Field(default=25, ge=1, le=100)
     max_pdf_pages: int = Field(default=500, ge=1, le=10000)
     max_pdf_text_characters: int = Field(default=2_000_000, ge=1, le=20_000_000)

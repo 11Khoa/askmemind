@@ -10,8 +10,9 @@ from app.core.types import DocumentStatus
 
 
 class ChunkRepository:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, scope=None):
         self.db = db
+        self.scope = scope
 
     def create_chunks(
         self,
@@ -51,8 +52,8 @@ class ChunkRepository:
 
     def list_chunks_by_document(self, document_id: uuid.UUID) -> list[Chunk]:
         return (
-            self.db.query(Chunk)
-            .filter(Chunk.document_id == document_id)
+            self.db.query(Chunk).join(Document, Chunk.document_id == Document.id)
+            .filter(Chunk.document_id == document_id, *(self.scope.conditions(Document) if self.scope else ()))
             .order_by(Chunk.chunk_index.asc())
             .all()
         )
@@ -91,6 +92,9 @@ class ChunkRepository:
             )
         )
 
+        if self.scope:
+            self.scope.check_active(self.db)
+            statement = statement.where(*self.scope.conditions(Document))
         if document_id is not None:
             statement = statement.where(Chunk.document_id == document_id)
 
@@ -127,6 +131,9 @@ class ChunkRepository:
             )
         )
 
+        if self.scope:
+            self.scope.check_active(self.db)
+            statement = statement.where(*self.scope.conditions(Document))
         if document_id is not None:
             statement = statement.where(Chunk.document_id == document_id)
 

@@ -18,3 +18,5 @@ __all__ = [
     "RefreshToken",
     "PasswordResetToken",
 ]
+
+from app.models.demo_session import DemoSession

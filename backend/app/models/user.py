@@ -15,7 +15,15 @@ if TYPE_CHECKING:
 
 class User(Base):
     __tablename__ = "users"
-    __table_args__ = (CheckConstraint("role IN ('user', 'admin')", name="ck_users_role"),)
+    __table_args__ = (
+        CheckConstraint("role IN ('user', 'admin')", name="ck_users_role"),
+        CheckConstraint("demo_retention_minutes BETWEEN 15 AND 1440", name="ck_users_demo_retention"),
+        CheckConstraint("NOT is_demo OR role = 'user'", name="ck_users_demo_role"),
+    )
+
+    is_demo: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    demo_retention_minutes: Mapped[int] = mapped_column(Integer, default=60, server_default="60", nullable=False)
+    demo_upload_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
 
     role: Mapped[str] = mapped_column(String(10), default="user", server_default="user", nullable=False)
 

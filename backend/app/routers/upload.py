@@ -1,3 +1,5 @@
+from app.core.demo_dependencies import require_demo_notice, require_demo_upload, get_data_scope
+from app.core.data_scope import DataScope
 import uuid
 from typing import Annotated
 
@@ -62,7 +64,7 @@ def _read_validated_pdf(
     "/upload",
     response_model=DocumentRead,
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[Depends(limit_uploads)],
+    dependencies=[Depends(require_demo_upload), Depends(limit_uploads)],
 )
 def upload_document(
     request: Request,
@@ -76,7 +78,7 @@ def upload_document(
 ):
     file_bytes = _read_validated_pdf(
         file=file,
-        max_size_bytes=settings.max_upload_size_mb * 1024 * 1024,
+        max_size_bytes=min(settings.max_upload_size_mb, settings.demo_max_upload_size_mb if getattr(current_user, "is_demo", False) is True else settings.max_upload_size_mb) * 1024 * 1024,
     )
     file_size_bytes = len(file_bytes)
 
@@ -105,6 +107,9 @@ def upload_document(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(error),
         ) from error
+    except HTTPException:
+        file_storage_service.delete_file(file_path=file_path)
+        raise
     except SQLAlchemyError as error:
         file_storage_service.delete_file(file_path=file_path)
         raise HTTPException(

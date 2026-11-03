@@ -1,3 +1,5 @@
+from app.core.demo_dependencies import require_demo_notice, require_demo_upload, get_data_scope
+from app.core.data_scope import DataScope
 import json
 import logging
 import uuid
@@ -63,7 +65,7 @@ def list_chats(
         ) from error
 
 
-@router.post("", response_model=ChatRead)
+@router.post("", response_model=ChatRead, dependencies=[Depends(require_demo_notice)])
 def create_chat(
     request: Request,
     payload: ChatCreate,
@@ -111,7 +113,7 @@ def list_chat_messages(
 
 @router.post(
     "/{chat_id}/messages", response_model=ChatMessageRead,
-    dependencies=[Depends(limit_questions)],
+    dependencies=[Depends(require_demo_notice), Depends(limit_questions)],
 )
 def create_user_message(
     chat_id: uuid.UUID,
@@ -139,7 +141,7 @@ def create_user_message(
 
 @router.post(
     "/{chat_id}/questions", response_model=ChatMessageRead,
-    dependencies=[Depends(limit_questions)],
+    dependencies=[Depends(require_demo_notice), Depends(limit_questions)],
 )
 def create_rag_question(
     chat_id: uuid.UUID,
@@ -167,7 +169,7 @@ def create_rag_question(
         ) from error
 
 
-@router.post("/{chat_id}/questions/stream", dependencies=[Depends(limit_questions)])
+@router.post("/{chat_id}/questions/stream", dependencies=[Depends(require_demo_notice), Depends(limit_questions)])
 def stream_rag_question(
     request: Request,
     chat_id: uuid.UUID,

@@ -26,6 +26,10 @@ class Chat(Base):
         default=uuid.uuid4,
     )
 
+    demo_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("demo_sessions.id", ondelete="CASCADE"), nullable=True, index=True,
+    )
+
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
