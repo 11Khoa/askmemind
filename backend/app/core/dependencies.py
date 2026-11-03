@@ -46,6 +46,8 @@ from app.services.providers.groq_llm_provider import GroqLLMProvider
 from app.services.context_builder_service import ContextBuilderService
 from app.services.rag_service import RagService
 from app.models.user import User
+from app.core.data_scope import DataScope
+from app.services import demo_service
 from app.core.config import settings
 from app.core.security import AccessTokenPayload, decode_access_token
 from app.core.logging import bind_user_id, log_event
@@ -53,19 +55,6 @@ from app.core.logging import bind_user_id, log_event
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 logger = logging.getLogger(__name__)
 
-
-def get_chat_service(
-    db: Annotated[Session, Depends(get_db)],
-) -> ChatService:
-    user_repository = UserRepository(db=db)
-    chat_repository = ChatRepository(db=db)
-    rag_service = get_rag_service(db=db)
-
-    return ChatService(
-        chat_repository=chat_repository,
-        user_repository=user_repository,
-        rag_service=rag_service,
-    )
 
 
 def get_auth_service(
@@ -149,11 +138,53 @@ def get_current_user(
     return user
 
 
+def get_data_scope(user: Annotated[User, Depends(get_current_user)],
+                   db: Annotated[Session, Depends(get_db)], request: Request) -> DataScope:
+    if getattr(user, "is_demo", False) is not True:
+        return DataScope(user.id, admin=getattr(user, "role", None) == "admin")
+    session = demo_service.current_session(db, user, request)
+    return DataScope(user.id, session.id)
+
+
+def require_demo_notice(user: Annotated[User, Depends(get_current_user)],
+                        db: Annotated[Session, Depends(get_db)], request: Request):
+    if getattr(user, "is_demo", False) is not True:
+        return
+    from app.core.browser_auth import require_browser_csrf
+    require_browser_csrf(request)
+    session = demo_service.current_session(db, user, request)
+    if session.notice_version != settings.demo_notice_version or session.notice_accepted_at is None:
+        raise HTTPException(428, "Demo privacy notice acceptance required")
+
+
+def require_demo_upload(user: Annotated[User, Depends(get_current_user)],
+                        notice: Annotated[None, Depends(require_demo_notice)]):
+    if getattr(user, "is_demo", False) is True and not user.demo_upload_enabled:
+        raise HTTPException(403, "Uploads are disabled for this demo account")
+
+
+
+def get_chat_service(
+    db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[DataScope, Depends(get_data_scope)] = None,
+) -> ChatService:
+    user_repository = UserRepository(db=db)
+    chat_repository = ChatRepository(db=db, scope=scope)
+    rag_service = get_rag_service(db=db, **({"scope": scope} if scope else {}))
+
+    return ChatService(
+        chat_repository=chat_repository,
+        user_repository=user_repository,
+        rag_service=rag_service,
+    )
+
+
 def get_document_service(
     db: Annotated[Session, Depends(get_db)],
+    scope: Annotated[DataScope, Depends(get_data_scope)] = None,
 ) -> DocumentService:
     user_repository = UserRepository(db=db)
-    document_repository = DocumentRepository(db=db)
+    document_repository = DocumentRepository(db=db, scope=scope)
 
     return DocumentService(
         document_repository=document_repository,
@@ -222,6 +253,12 @@ def process_document_in_background(
                 or document.processing_attempt_id != processing_attempt_id
             ):
                 return
+            if getattr(document, "demo_session_id", None):
+                try:
+                    DataScope(user_id, document.demo_session_id).check_active(db)
+                except HTTPException:
+                    db.rollback()
+                    return
             try:
                 service = build_document_processing_service(db=db)
                 service.process_document(document_id=document_id, file_path=file_path)
@@ -262,6 +299,7 @@ def process_document_in_background(
                                 else None
                             ),
                         },
+                        **({"demo_session_id": document.demo_session_id} if getattr(document, "demo_session_id", None) else {}),
                     )
                 except Exception as error:
                     # SSE is best effort; notification failure must not undo ready.
@@ -303,8 +341,9 @@ def get_embedding_service() -> EmbeddingService:
 
 def get_retrieval_service(
     db: Annotated[Session, Depends(get_db)],
+    scope: DataScope | None = None,
 ) -> RetrievalService:
-    chunk_repository = ChunkRepository(db=db)
+    chunk_repository = ChunkRepository(db=db, scope=scope)
     embedding_service = get_embedding_service()
 
     return RetrievalService(
@@ -355,8 +394,9 @@ def get_retrieval_agent(
 
 def get_rag_service(
     db: Annotated[Session, Depends(get_db)],
+    scope: DataScope | None = None,
 ) -> RagService:
-    retrieval_service = get_retrieval_service(db=db)
+    retrieval_service = get_retrieval_service(db=db, **({"scope": scope} if scope else {}))
     context_builder_service = ContextBuilderService()
     llm_service = get_llm_service()
     reranking_service = get_reranking_service()

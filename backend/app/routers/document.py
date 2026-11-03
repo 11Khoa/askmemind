@@ -1,4 +1,7 @@
+from app.core.demo_dependencies import require_demo_notice, require_demo_upload, get_data_scope
+from app.core.data_scope import DataScope
 import uuid
+from datetime import UTC, datetime
 import logging
 from typing import Annotated
 from sqlalchemy.orm import Session
@@ -42,7 +45,7 @@ def cancel_document(
                 "processing_progress": document.processing_progress,
                 "page_count": document.page_count, "error_message": document.error_message,
                 "updated_at": document.updated_at.isoformat(),
-            })
+            }, **({"demo_session_id": document.demo_session_id} if document.demo_session_id else {}))
         except Exception:
             logger.warning("document.cancel.event_failed")
         return document
@@ -133,6 +136,13 @@ async def stream_document_events(
     db: Annotated[Session, Depends(get_db)],
 ):
     user_id = current_user.id
+    scope = get_data_scope(current_user, db, request)
+    stream_options = {}
+    if scope.demo_session_id:
+        from app.services.demo_service import current_session
+        session = current_session(db, current_user, request)
+        stream_options = {"demo_session_id": scope.demo_session_id,
+                          "max_seconds": max(0, (session.expires_at - datetime.now(UTC)).total_seconds())}
     # Authentication has finished; do not pin a database connection for the
     # lifetime of an otherwise idle Redis/SSE subscription.
     await run_in_threadpool(db.close)
@@ -140,6 +150,7 @@ async def stream_document_events(
         document_event_broker.stream(
             user_id=user_id,
             request=request,
+            **stream_options,
         ),
         media_type="text/event-stream",
         headers={
@@ -171,7 +182,7 @@ def get_document(
 
 @router.post(
     "/{document_id}/retry", response_model=DocumentRead, status_code=202,
-    dependencies=[Depends(limit_uploads)],
+    dependencies=[Depends(require_demo_upload), Depends(limit_uploads)],
 )
 def retry_document(
     document_id: uuid.UUID,

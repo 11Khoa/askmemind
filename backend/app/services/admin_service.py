@@ -39,6 +39,8 @@ def update_user(db, actor_id, user_id, payload):
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     new_role = payload.role if payload.role is not None else user.role
+    if user.is_demo and new_role == "admin":
+        raise HTTPException(409, "Disable demo mode before granting administrator access")
     new_active = payload.is_active if payload.is_active is not None else user.is_active
     if user.role == "admin" and user.is_active and (new_role != "admin" or not new_active):
         count = db.scalar(select(func.count()).select_from(User).where(User.role == "admin", User.is_active.is_(True)))

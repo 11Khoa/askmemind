@@ -48,6 +48,8 @@ class DocumentProgress:
         self.document = document
         self.document_id = document.id
         self.attempt_id = document.processing_attempt_id
+        from app.core.data_scope import DataScope
+        self.scope = DataScope(document.user_id, document.demo_session_id)
         self._events_available = True
         self._last_event = 0.0
         self._last_stage = None
@@ -57,11 +59,20 @@ class DocumentProgress:
                 Document.processing_attempt_id == self.attempt_id,
                 Document.status == "processing")
 
+    def _check_demo(self, lock=False):
+        from fastapi import HTTPException
+        try:
+            self.scope.check_active(self.db, lock=lock)
+        except HTTPException:
+            raise ProcessingStopped("Demo session is no longer active") from None
+
     def _check_attempt(self):
+        self._check_demo(lock=True)
         if self.db.scalar(select(Document.id).where(*self._condition()).with_for_update()) is None:
             raise ProcessingStopped("Document processing attempt is no longer active")
 
     def ensure_active(self):
+        self._check_demo()
         # Read committed state without retaining a row lock during native OCR or
         # provider requests, so cancellation can be accepted immediately.
         if self.db.scalar(select(Document.id).where(*self._condition())) is None:
@@ -104,6 +115,7 @@ class DocumentProgress:
         self.db.commit()
 
     def report(self, **values):
+        self._check_attempt()
         progress = {**(self.document.processing_progress or {}), **values}
         result = self.db.execute(update(Document).where(*self._condition()).values(
             processing_progress=progress, updated_at=func.clock_timestamp(),
@@ -126,7 +138,7 @@ class DocumentProgress:
                 "processing_attempt_id": str(self.attempt_id) if self.attempt_id else None,
                 "processing_progress": progress, "page_count": self.document.page_count,
                 "error_message": None, "updated_at": updated_at.isoformat(),
-            })
+            }, demo_session_id=self.scope.demo_session_id)
         except Exception:
             self._events_available = False
             logger.warning("document.progress.event_failed")

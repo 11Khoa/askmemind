@@ -8,6 +8,8 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, Request
 
 from app.core.config import settings
+from app.core.demo_dependencies import get_data_scope
+from app.core.data_scope import DataScope
 from app.core.dependencies import get_current_user, get_token_store
 from app.core.security import hash_token
 from app.models.user import User
@@ -36,12 +38,18 @@ def limit_registration(request: Request, store: Annotated[TokenStore, Depends(ge
 def limit_questions(
     user: Annotated[User, Depends(get_current_user)],
     store: Annotated[TokenStore, Depends(get_token_store)],
+    scope: Annotated[DataScope, Depends(get_data_scope)] = None,
 ) -> None:
+    if scope and scope.demo_session_id:
+        enforce_limit(store, f"demo:questions:{scope.demo_session_id}", settings.demo_questions_per_minute, 60)
     enforce_limit(store, f"questions:user:{user.id}", settings.question_requests_per_minute, 60)
 
 
 def limit_uploads(
     user: Annotated[User, Depends(get_current_user)],
     store: Annotated[TokenStore, Depends(get_token_store)],
+    scope: Annotated[DataScope, Depends(get_data_scope)] = None,
 ) -> None:
+    if scope and scope.demo_session_id:
+        enforce_limit(store, f"demo:uploads:{scope.demo_session_id}", settings.upload_requests_per_hour, 3600)
     enforce_limit(store, f"uploads:user:{user.id}", settings.upload_requests_per_hour, 3600)

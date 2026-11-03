@@ -21,8 +21,13 @@ class DocumentQuotaExceeded(Exception):
 
 
 class DocumentRepository:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, scope=None):
         self.db = db
+        self.scope = scope
+
+    def query(self):
+        query = self.db.query(Document)
+        return query.filter(*self.scope.conditions(Document)) if self.scope else query
 
     def create_document(
         self,
@@ -36,20 +41,35 @@ class DocumentRepository:
         source_type: str,
         source_metadata: dict | None = None,
     ) -> Document:
+        if self.scope and self.scope.demo_session_id:
+            self.scope.check_active(self.db, lock=True)
         # Serialize quota checks with insertion across simultaneous uploads.
         self.db.query(User.id).filter(User.id == user_id).with_for_update().one()
-        count, stored_bytes = self.db.query(
+        count = self.db.query(
             func.count(Document.id), func.coalesce(func.sum(Document.file_size_bytes), 0)
-        ).filter(Document.user_id == user_id).one()
-        if count >= settings.max_documents_per_user:
+        ).filter(Document.user_id == user_id)
+        if self.scope:
+            count_query = count.filter(*self.scope.conditions(Document))
+        else:
+            count_query = count
+        count, stored_bytes = count_query.one()
+        if count >= (settings.demo_max_files if self.scope and self.scope.demo_session_id else settings.max_documents_per_user):
             self.db.rollback()
             raise DocumentQuotaExceeded("Document limit reached")
+        if self.scope and self.scope.demo_session_id:
+            account_count, stored_bytes = self.db.execute(select(
+                func.count(Document.id), func.coalesce(func.sum(Document.file_size_bytes), 0),
+            ).where(Document.user_id == user_id)).one()
+            if account_count >= settings.max_documents_per_user:
+                self.db.rollback()
+                raise DocumentQuotaExceeded("Demo account document limit reached")
         if stored_bytes + file_size_bytes > settings.max_storage_per_user_mb * 1024 * 1024:
             self.db.rollback()
             raise DocumentQuotaExceeded("Document storage limit reached")
 
         document = Document(
             user_id=user_id,
+            demo_session_id=self.scope.demo_session_id if self.scope else None,
             filename=filename,
             original_filename=original_filename,
             file_path=file_path,
@@ -68,10 +88,11 @@ class DocumentRepository:
         return document
 
     def get_document_by_id(self, document_id: uuid.UUID) -> Document | None:
-        return self.db.query(Document).populate_existing().filter(Document.id == document_id).first()
+        return self.query().populate_existing().filter(Document.id == document_id).first()
 
     def get_chunk(self, document_id: uuid.UUID, chunk_id: uuid.UUID) -> Chunk | None:
-        return self.db.query(Chunk).filter(
+        return self.db.query(Chunk).join(Document, Chunk.document_id == Document.id).filter(
+            *(self.scope.conditions(Document) if self.scope else ()),
             Chunk.document_id == document_id, Chunk.id == chunk_id,
         ).first()
 
@@ -86,7 +107,7 @@ class DocumentRepository:
         # Remove retained excerpts as well as rows/vectors. Historical answers
         # remain in chats, but are no longer eligible as conversation context.
         for message in self.db.query(ChatMessage).populate_existing().join(Chat).filter(
-            Chat.user_id == document.user_id, ChatMessage.role == "assistant",
+            Chat.user_id == document.user_id, Chat.demo_session_id == document.demo_session_id, ChatMessage.role == "assistant",
         ).order_by(ChatMessage.id).with_for_update(of=ChatMessage).yield_per(100):
             metadata = message.message_metadata or {}
             citations = metadata.get("citations", [])
@@ -103,7 +124,7 @@ class DocumentRepository:
 
     def list_documents_by_user(self, user_id: uuid.UUID) -> list[Document]:
         return (
-            self.db.query(Document)
+            self.query()
             .filter(Document.user_id == user_id)
             .order_by(Document.created_at.desc())
             .all()
@@ -122,10 +143,13 @@ class DocumentRepository:
     def claim_retry(
         self, document_id: uuid.UUID, user_id: uuid.UUID
     ) -> Document | None:
+        if self.scope:
+            self.scope.check_active(self.db, lock=True)
         result = self.db.execute(
             update(Document)
             .where(
                 Document.id == document_id,
+                *(self.scope.conditions(Document) if self.scope else ()),
                 Document.user_id == user_id,
                 Document.status.in_([DocumentStatus.PROCESSING_FAILED.value, "failed", "cancelled"]),
             )
@@ -145,11 +169,14 @@ class DocumentRepository:
         return result
 
     def cancel_document(self, document_id: uuid.UUID) -> Document | None:
+        if self.scope:
+            self.scope.check_active(self.db, lock=True)
         additions = {"stage": "cancelled", "finished_at": datetime.now(UTC).isoformat(),
                      "error_code": None, "failed_stage": None}
         progress = func.coalesce(Document.processing_progress, cast({}, JSONB)).op("||")(cast(additions, JSONB))
         result = self.db.execute(update(Document).where(
             Document.id == document_id, Document.status.in_(["processing", "uploaded"]),
+            *(self.scope.conditions(Document) if self.scope else ()),
         ).values(status="cancelled", processing_attempt_id=None, error_message=None,
                  processing_progress=progress, updated_at=func.clock_timestamp()).returning(Document),
             execution_options={"populate_existing": True}).scalar_one_or_none()
@@ -159,6 +186,15 @@ class DocumentRepository:
     def fail_attempt(
         self, document_id: uuid.UUID, attempt_id: uuid.UUID | None, reason: str
     ) -> None:
+        demo = self.db.execute(select(Document.user_id, Document.demo_session_id).where(Document.id == document_id)).first()
+        if demo and demo.demo_session_id:
+            from app.core.data_scope import DataScope
+            from fastapi import HTTPException
+            try:
+                DataScope(demo.user_id, demo.demo_session_id).check_active(self.db, lock=True)
+            except HTTPException:
+                self.db.rollback()
+                return
         previous = self.db.scalar(
             select(Document.processing_progress).where(
                 Document.id == document_id, Document.processing_attempt_id == attempt_id,
@@ -224,7 +260,7 @@ class DocumentRepository:
         error_message: str,
     ) -> int:
         updated_count = (
-            self.db.query(Document)
+            self.query()
             .filter(Document.status == DocumentStatus.PROCESSING.value)
             .update(
                 {
@@ -243,7 +279,7 @@ class DocumentRepository:
         original_filename: str,
     ) -> Document | None:
         return (
-            self.db.query(Document)
+            self.query()
             .filter(
                 Document.user_id == user_id,
                 Document.original_filename == original_filename,

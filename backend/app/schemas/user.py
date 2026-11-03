@@ -24,6 +24,9 @@ class UserCreate(BaseModel):
 
 
 class UserRead(BaseModel):
+    is_demo: bool = False
+    demo_retention_minutes: int = 60
+    demo_upload_enabled: bool = True
     role: Literal["user", "admin"] = "user"
     id: uuid.UUID
     email: EmailStr

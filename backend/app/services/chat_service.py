@@ -135,6 +135,9 @@ class ChatService:
             top_k=top_k,
             **self._history_options(chat_id, user_message_index, document_id),
         ):
+            scope = getattr(self.chat_repository, "scope", None)
+            if scope:
+                scope.check_active(self.chat_repository.db)
             if rag_event.event in {"token", "replace"}:
                 yield ChatStreamEvent(
                     event=rag_event.event,
@@ -176,6 +179,11 @@ class ChatService:
             user_id=user_id,
             chat_id=chat_id,
         )
+
+        if document_id is not None and getattr(self.chat_repository, "scope", None):
+            from app.repositories.document_repository import DocumentRepository
+            if DocumentRepository(self.chat_repository.db, self.chat_repository.scope).get_document_by_id(document_id) is None:
+                raise ValueError("Document not found")
 
         user_message_index = self.chat_repository.get_next_message_index(
             chat_id=chat_id,

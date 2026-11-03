@@ -1,10 +1,12 @@
 import logging
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 
 from app.core.config import settings
+from app.services import demo_service
 from app.core.rate_limits import limit_login, limit_registration
 from app.core.browser_auth import (
     clear_refresh_cookie,
@@ -98,6 +100,12 @@ def login_user(
         ) from error
     request.state.actor_id = getattr(auth_service, "authenticated_user_id", None)
     set_refresh_cookie(response, tokens)
+    if isinstance(getattr(auth_service, "authenticated_user_id", None), uuid.UUID):
+        user = auth_service.user_repository.get_user_by_id(auth_service.authenticated_user_id)
+        if user.is_demo:
+            demo_service.set_cookie(response, demo_service.create_session(auth_service.user_repository.db, user))
+        elif demo_service.COOKIE in request.cookies:
+            demo_service.clear_cookie(response)
     return AccessTokenResponse(access_token=tokens.access_token)
 
 
@@ -151,6 +159,8 @@ def logout(
     token_store.revoke_access(access_payload)
     response = Response(status_code=204)
     clear_refresh_cookie(response)
+    if demo_service.COOKIE in request.cookies:
+        demo_service.clear_cookie(response)
     return response
 
 
