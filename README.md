@@ -203,7 +203,7 @@ npm install
 npm run dev              # http://localhost:5173
 ```
 
-Requires Node.js 20.19 or newer. To use the Streamlit client instead: `cd frontend/streamlit && pip install -r requirements.txt && streamlit run app.py`.
+Requires Node.js 20.19 or newer. The supported web client is React.
 
 ---
 
@@ -381,7 +381,6 @@ backend/
   tests/            pytest suite
 frontend/
   react/            web client (Vite, TypeScript)
-  streamlit/        lightweight client
 deploy/nginx/       reverse proxy example
 http/               smoke-test requests and sample PDFs
 docker-compose.yml  PostgreSQL, Redis, API, worker
