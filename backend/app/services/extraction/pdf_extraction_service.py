@@ -4,11 +4,11 @@ import hashlib
 import json
 from time import monotonic
 
-import fitz
 
 from app.core.config import settings
 from app.core.logging import log_event
 from app.services.extraction.ocr_session import OCRSession
+from app.services.extraction.native_pdf_session import NativePDFSession
 from app.services.extraction.ocr_assets import MODELS
 from app.services.extraction.base import ExtractionCheckpoint
 
@@ -33,24 +33,14 @@ class PdfExtractionService:
         session = OCRSession(file_path, settings, started + settings.pdf_ocr_document_timeout_seconds)
         if checkpoint is not None and hasattr(checkpoint, "ensure_active"):
             session.ensure_active = checkpoint.ensure_active
+        native = NativePDFSession(file_path, settings, started + settings.pdf_ocr_document_timeout_seconds)
+        if checkpoint is not None and hasattr(checkpoint, "ensure_active"):
+            native.ensure_active = checkpoint.ensure_active
         try:
-            return self._extract(file_path, session, started, checkpoint)
+            return self._extract(file_path, session, native, started, checkpoint)
         finally:
+            native.close()
             session.close()
-
-    @staticmethod
-    def _needs_ocr(page, text: str) -> bool:
-        # Text PDFs remain on the fast path. A short header over a large scanned
-        # image still needs OCR; render the whole page once to avoid duplicates.
-        if not text:
-            return bool(page.get_bboxlog())
-        if len(text) >= 80:
-            return False
-        area = page.rect.get_area()
-        return area > 0 and any(
-            (fitz.Rect(image["bbox"]) & page.rect).get_area() / area >= 0.25
-            for image in page.get_image_info()
-        )
 
     def _fingerprint(self, file_path: Path) -> str:
         with file_path.open("rb") as pdf:
@@ -62,78 +52,76 @@ class PdfExtractionService:
         }
         return hashlib.sha256(json.dumps(configuration, sort_keys=True).encode()).hexdigest()
 
-    def _extract(self, file_path: Path, session: OCRSession, started: float,
+    def _extract(self, file_path: Path, session: OCRSession, native: NativePDFSession, started: float,
                  checkpoint: ExtractionCheckpoint | None = None) -> ExtractedSource:
         units: list[ExtractedTextUnit] = []
         text_characters = 0
         ocr_pages = 0
         empty_ocr_pages = []
         reused_pages = 0
-        with fitz.open(file_path) as document:
-            page_count = document.page_count
-            if page_count > self.max_pages:
-                raise ValueError("PDF exceeds the configured page limit")
-            cached = checkpoint.begin(self._fingerprint(file_path), page_count) if checkpoint else {}
+        page_count = native.page_count(self.max_pages)
+        if page_count > self.max_pages:
+            raise ValueError("PDF exceeds the configured page limit")
+        cached = checkpoint.begin(self._fingerprint(file_path), page_count) if checkpoint else {}
 
-            for page_index in range(page_count):
-                number = page_index + 1
-                entry = cached.get(number)
-                if entry is not None:
-                    reused_pages += 1
-                    text = entry["text"]
-                    stored = entry["metadata"]
-                    metadata = {k: v for k, v in stored.items() if not k.startswith("_")}
-                    needs_ocr = stored.get("_ocr_attempted", False)
-                    empty_ocr = stored.get("_ocr_empty", False)
+        for page_index in range(page_count):
+            number = page_index + 1
+            entry = cached.get(number)
+            if entry is not None:
+                reused_pages += 1
+                text = entry["text"]
+                stored = entry["metadata"]
+                metadata = {k: v for k, v in stored.items() if not k.startswith("_")}
+                needs_ocr = stored.get("_ocr_attempted", False)
+                empty_ocr = stored.get("_ocr_empty", False)
+            else:
+                page = native.page(page_index, self.max_text_characters - text_characters)
+                text = page["text"]
+                metadata = {}
+                needs_ocr = settings.pdf_ocr_enabled and page["needs_ocr"]
+                empty_ocr = False
+            if checkpoint:
+                checkpoint.report(stage="ocr" if needs_ocr and entry is None else "extracting",
+                                  current_page=number, completed_pages=page_index,
+                                  total_pages=page_count, reused_pages=reused_pages)
+            if needs_ocr:
+                ocr_pages += 1
+                if ocr_pages > settings.pdf_ocr_max_pages:
+                    raise ValueError("PDF exceeds the configured OCR page limit. Split the PDF and retry.")
+            if needs_ocr and entry is None:
+                try:
+                    result = session.recognize(page_index, self.max_text_characters - text_characters)
+                except Exception:
+                    logger.error("pdf.ocr.page.failed page=%s total=%s", number, page_count)
+                    raise
+                # Prefer a complete OCR rendering over a partial text header.
+                # If OCR finds no reliable text, keep any existing native text.
+                if result["text"].strip():
+                    text = result["text"].strip()
+                    metadata = {"extraction_method": "ocr", "ocr_confidence": result["confidence"]}
                 else:
-                    page = document.load_page(page_index)
-                    text = page.get_text().strip()
-                    metadata = {}
-                    needs_ocr = settings.pdf_ocr_enabled and self._needs_ocr(page, text)
-                    empty_ocr = False
-                if checkpoint:
-                    checkpoint.report(stage="ocr" if needs_ocr and entry is None else "extracting",
-                                      current_page=number, completed_pages=page_index,
-                                      total_pages=page_count, reused_pages=reused_pages)
-                if needs_ocr:
-                    ocr_pages += 1
-                    if ocr_pages > settings.pdf_ocr_max_pages:
-                        raise ValueError("PDF exceeds the configured OCR page limit. Split the PDF and retry.")
-                if needs_ocr and entry is None:
-                    try:
-                        result = session.recognize(page_index, self.max_text_characters - text_characters)
-                    except Exception:
-                        logger.error("pdf.ocr.page.failed page=%s total=%s", number, page_count)
-                        raise
-                    # Prefer a complete OCR rendering over a partial text header.
-                    # If OCR finds no reliable text, keep any existing native text.
-                    if result["text"].strip():
-                        text = result["text"].strip()
-                        metadata = {"extraction_method": "ocr", "ocr_confidence": result["confidence"]}
-                    else:
-                        empty_ocr = True
-                if empty_ocr:
-                    empty_ocr_pages.append(number)
-                text_characters += len(text)
-                if text_characters > self.max_text_characters:
-                    raise ValueError("PDF exceeds the configured extracted text limit")
-                if checkpoint:
-                    if entry is None:
-                        checkpoint.save(number, text, {**metadata, "_ocr_attempted": bool(needs_ocr),
-                                                       "_ocr_empty": empty_ocr})
-                    checkpoint.report(completed_pages=number, reused_pages=reused_pages)
+                    empty_ocr = True
+            if empty_ocr:
+                empty_ocr_pages.append(number)
+            text_characters += len(text)
+            if text_characters > self.max_text_characters:
+                raise ValueError("PDF exceeds the configured extracted text limit")
+            if checkpoint:
+                if entry is None:
+                    checkpoint.save(number, text, {**metadata, "_ocr_attempted": bool(needs_ocr),
+                                                   "_ocr_empty": empty_ocr})
+                checkpoint.report(completed_pages=number, reused_pages=reused_pages)
 
-                if not text:
-                    continue
+            if not text:
+                continue
 
-                units.append(
-                    ExtractedTextUnit(
-                        text=text,
-                        page_number=page_index + 1,
-                        metadata=metadata,
-                    )
+            units.append(
+                ExtractedTextUnit(
+                    text=text,
+                    page_number=page_index + 1,
+                    metadata=metadata,
                 )
-
+            )
         if not units:
             raise ValueError("PDF does not contain extractable text")
 

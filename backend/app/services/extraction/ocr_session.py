@@ -21,7 +21,9 @@ class OCRSession:
 
     def _start(self):
         config = self.config
-        environment = os.environ.copy()
+        environment = {name: os.environ[name] for name in (
+            "PATH", "LANG", "LC_ALL", "PYTHONPATH", "LD_LIBRARY_PATH", "SYSTEMROOT", "TMPDIR",
+        ) if name in os.environ}
         for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
             environment[name] = str(config.pdf_ocr_threads)
         self.process = subprocess.Popen(
@@ -44,17 +46,15 @@ class OCRSession:
         except (BrokenPipeError, OSError) as error:
             raise ValueError("OCR worker exited unexpectedly. Check OCR installation and retry.") from error
 
-    def recognize(self, page_index: int, max_characters: int) -> dict:
+    def _exchange(self, request: dict, max_bytes: int, timeout: float) -> dict:
         if self.ensure_active is not None:
             self.ensure_active()
-        deadline = min(self.deadline, monotonic() + self.config.pdf_ocr_page_timeout_seconds)
+        deadline = min(self.deadline, monotonic() + timeout)
         if monotonic() >= deadline:
             raise ValueError("PDF OCR exceeded the configured document timeout")
         if self.process is None:
             self._start()
-        self._send({"page_index": page_index, "max_characters": max_characters})
-        # JSON ASCII escaping can use six bytes per character.
-        max_bytes = max_characters * 6 + 4096
+        self._send(request)
         output = bytearray()
         with selectors.DefaultSelector() as selector:
             selector.register(self.process.stdout, selectors.EVENT_READ)
@@ -84,6 +84,11 @@ class OCRSession:
             raise ValueError("Invalid OCR worker response")
         if "error" in result:
             raise ValueError(result["error"])
+        return result
+
+    def recognize(self, page_index: int, max_characters: int) -> dict:
+        result = self._exchange({"page_index": page_index, "max_characters": max_characters},
+                                max_characters * 6 + 4096, self.config.pdf_ocr_page_timeout_seconds)
         if (not isinstance(result.get("text"), str)
                 or len(result["text"]) > max_characters
                 or "confidence" not in result):

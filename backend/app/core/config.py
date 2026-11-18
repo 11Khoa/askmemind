@@ -90,6 +90,8 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = Field(default=25, ge=1, le=100)
     max_pdf_pages: int = Field(default=500, ge=1, le=10000)
     max_pdf_text_characters: int = Field(default=2_000_000, ge=1, le=20_000_000)
+    pdf_native_page_timeout_seconds: float = Field(default=30, ge=1, le=300)
+    pdf_native_memory_mb: int = Field(default=512, ge=128, le=4096)
     pdf_ocr_enabled: bool = True
     pdf_ocr_model_dir: Path = BASE_DIR / "backend/models/ocr"
     pdf_ocr_dpi: int = Field(default=180, ge=72, le=300)

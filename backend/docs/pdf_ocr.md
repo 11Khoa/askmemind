@@ -118,3 +118,17 @@ extend page selection separately if that is required.
 Roll back by setting `PDF_OCR_ENABLED=False` and restarting workers. Newly
 uploaded scans will then follow the previous text-only behavior; existing chunks
 and original PDFs are not changed.
+
+### Native parsing boundary
+
+Text extraction, page loading and scan detection now run in a separate native
+PDF interpreter as well. Both native parsing and OCR have per-request and total
+document deadlines and are killed/reaped on cancellation or timeout. Child env
+contains runtime paths/locale/thread controls, not app credentials.
+
+`PDF_NATIVE_PAGE_TIMEOUT_SECONDS` defaults to 30. On Linux,
+`PDF_NATIVE_MEMORY_MB` defaults to 512 MB **additional virtual address space**
+after trusted libraries load, before opening a PDF; this is not an RSS promise.
+The native interpreter also has a CPU-time limit. Container memory/CPU budgets
+remain necessary; this subprocess is not a complete filesystem/network sandbox.
+Checkpoint/retry behavior and lazy OCR model initialization are retained.
