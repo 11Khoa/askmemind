@@ -52,6 +52,7 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
   const cancellingRef = useRef(new Set<string>())
   const [cancellingIds, setCancellingIds] = useState<ReadonlySet<string>>(new Set())
   const abortRef = useRef<AbortController | null>(null)
+  const submittingRef = useRef(false)
   const [chats, setChats] = useState<Chat[]>([])
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
@@ -272,7 +273,9 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
 
   async function sendQuestion() {
     const content = question.trim()
-    if (!content || sending) return
+    if (!content || sending || submittingRef.current) return
+    submittingRef.current = true
+    try {
     if (!(await beforeAction())) return
     setQuestion('')
     setNotice(null)
@@ -359,6 +362,7 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
       setSending(false)
       if(abortRef.current === controller) abortRef.current = null
     }
+    } finally { submittingRef.current = false }
   }
 
   async function uploadDocument(file: File) {
