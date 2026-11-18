@@ -126,6 +126,14 @@ class Settings(BaseSettings):
         return ",".join(parse_origins(value))
 
     @model_validator(mode="after")
+    def _validate_production_secret(self):
+        if self.environment == "production":
+            placeholder = self.secret_key.lower().startswith(("change-me", "your-secret", "replace-me"))
+            if len(self.secret_key) < 32 or len(set(self.secret_key)) < 8 or placeholder:
+                raise ValueError("Production SECRET_KEY must be a randomly generated secret of at least 32 characters, not a placeholder")
+        return self
+
+    @model_validator(mode="after")
     def _validate_cookie_security(self):
         if self.environment == "production" and not self.auth_refresh_cookie_secure:
             raise ValueError("Production refresh cookies must use Secure")

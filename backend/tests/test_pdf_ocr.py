@@ -360,4 +360,4 @@ def test_unsafe_ocr_settings_fail_validation(field, value):
     from app.core.config import Settings
     from pydantic import ValidationError
     with pytest.raises(ValidationError):
-        Settings(_env_file=None, database_url="sqlite://", secret_key="test", **{field: value})
+        Settings(_env_file=None, database_url="sqlite://", secret_key="0123456789abcdef0123456789abcdef", **{field: value})

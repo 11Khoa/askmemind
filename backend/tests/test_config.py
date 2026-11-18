@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 def make_settings(**overrides):
     return Settings(
-        _env_file=None, database_url="sqlite://", secret_key="test", **overrides
+        _env_file=None, database_url="sqlite://", secret_key="0123456789abcdef0123456789abcdef", **overrides
     )
 
 
@@ -75,7 +75,7 @@ def test_default_embedding_settings_match_current_vector_schema(monkeypatch) -> 
     settings = Settings(
         _env_file=None,
         database_url="postgresql://test:test@localhost:5432/test",
-        secret_key="test-secret",
+        secret_key="0123456789abcdef0123456789abcdef",
     )
     assert settings.embedding_provider == "nvidia"
     assert settings.embedding_model == "nvidia/nemotron-3-embed-1b"
@@ -103,7 +103,7 @@ def test_celery_urls_can_override_redis_url() -> None:
     settings = Settings(
         _env_file=None,
         database_url="postgresql://test:test@localhost:5432/test",
-        secret_key="test-secret",
+        secret_key="0123456789abcdef0123456789abcdef",
         redis_url="redis://redis:6379/0",
         celery_broker_url="redis://broker:6379/1",
         celery_result_backend="redis://backend:6379/2",
@@ -111,3 +111,13 @@ def test_celery_urls_can_override_redis_url() -> None:
 
     assert settings.resolved_celery_broker_url == "redis://broker:6379/1"
     assert settings.resolved_celery_result_backend == "redis://backend:6379/2"
+
+
+@pytest.mark.parametrize("key", ["", "x", "test-secret", "a" * 64, "change-me-to-a-long-random-secret"])
+def test_production_rejects_weak_signing_keys(key):
+    with pytest.raises(ValidationError, match="Production SECRET_KEY"):
+        Settings(_env_file=None, database_url="sqlite://", secret_key=key, environment="production")
+
+
+def test_local_environment_explicitly_allows_test_secret():
+    assert Settings(_env_file=None, database_url="sqlite://", secret_key="test", environment="local").secret_key == "test"

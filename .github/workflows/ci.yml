@@ -38,6 +38,7 @@ jobs:
     env:
       DATABASE_URL: postgresql+psycopg://askmemind:test@localhost:5432/askmemind_test
 
+      ENVIRONMENT: local
       SECRET_KEY: test-secret-key
 
       NVIDIA_API_KEY: test-nvidia-key
