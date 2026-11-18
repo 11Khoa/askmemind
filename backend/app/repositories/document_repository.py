@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.types import DocumentStatus
 from app.core.config import settings
 from app.models.document import Document
+from app.models.document_job import DocumentJob
 from app.models.user import User
 from app.models.chunk import Chunk
 from app.models.chat import Chat
@@ -82,8 +83,11 @@ class DocumentRepository:
         )
 
         self.db.add(document)
+        self.db.flush()
+        self.db.add(DocumentJob(document_id=document.id, attempt_id=document.processing_attempt_id))
         self.db.commit()
-        self.db.refresh(document)
+        # Do not refresh after commit inside the upload's rollback/file-cleanup
+        # block: a refresh failure must not remove an already committed PDF.
 
         return document
 
@@ -162,6 +166,7 @@ class DocumentRepository:
             execution_options={"populate_existing": True},
         ).scalar_one_or_none()
         if result is not None:
+            self.db.add(DocumentJob(document_id=result.id, attempt_id=result.processing_attempt_id))
             result.processing_progress = {**(result.processing_progress or {}),
                                           "stage": "queued", "error_code": None, "failed_stage": None,
                                           "started_at": None, "finished_at": None}

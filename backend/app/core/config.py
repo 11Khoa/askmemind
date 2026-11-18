@@ -112,6 +112,9 @@ class Settings(BaseSettings):
     upload_dir: str = "storage/uploads"
     temp_dir: str = "storage/temp"
 
+    document_dispatch_max_attempts: int = Field(default=10, ge=1, le=100)
+    document_dispatch_stale_seconds: int = Field(default=600, ge=60, le=7200)
+
     redis_url: str = "redis://localhost:6379/0"
     celery_broker_url: str | None = None
     celery_result_backend: str | None = None

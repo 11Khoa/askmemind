@@ -110,15 +110,17 @@ def test_retry_can_resume_checkpoint_without_original(
     queued.assert_called_once()
 
 
-def test_enqueue_failure_leaves_document_retryable(retry_client, failed_document):
+def test_enqueue_failure_keeps_durable_attempt_queued(retry_client, failed_document):
     client, queued = retry_client
     queued.side_effect = RuntimeError("broker unavailable")
     response = client.post(f"/documents/{failed_document.id}/retry")
-    assert response.status_code == 503
-    assert failed_document.status == "processing_failed"
-    assert "Could not queue" in failed_document.error_message
-    queued.side_effect = None
-    assert client.post(f"/documents/{failed_document.id}/retry").status_code == 202
+    assert response.status_code == 202
+    assert failed_document.status == "processing"
+    assert failed_document.error_message is None
+    from app.models.document_job import DocumentJob
+    repository = app.dependency_overrides[dependencies.get_document_service]()
+    assert repository.document_repository.db.get(DocumentJob, (failed_document.id, failed_document.processing_attempt_id)) is not None
+    assert client.post(f"/documents/{failed_document.id}/retry").status_code == 409
 
 
 def test_processing_lock_excludes_concurrent_worker(db_session, failed_document):
@@ -251,7 +253,7 @@ def test_two_sessions_cannot_claim_the_same_retry():
             db.commit()
 
 
-def test_upload_enqueue_failure_keeps_file_and_a_retryable_row(
+def test_upload_enqueue_failure_keeps_file_and_a_durable_queued_row(
     retry_client, failed_document
 ):
     client, queued = retry_client
@@ -263,13 +265,13 @@ def test_upload_enqueue_failure_keeps_file_and_a_retryable_row(
         "/documents/upload",
         files={"file": ("new.pdf", b"%PDF-1.7\n", "application/pdf")},
     )
-    assert response.status_code == 503
+    assert response.status_code == 202
     documents = client.get("/documents").json()
     uploaded = next(
         document for document in documents if document["original_filename"] == "new.pdf"
     )
-    assert uploaded["status"] == "processing_failed"
-    assert "Could not queue" in uploaded["error_message"]
+    assert uploaded["status"] == "processing"
+    assert uploaded["error_message"] is None
     storage.delete_file.assert_not_called()
 
 

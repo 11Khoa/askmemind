@@ -20,3 +20,5 @@ __all__ = [
 ]
 
 from app.models.demo_session import DemoSession
+
+from app.models.document_job import DocumentJob

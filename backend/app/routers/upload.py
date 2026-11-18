@@ -111,10 +111,12 @@ def upload_document(
         file_storage_service.delete_file(file_path=file_path)
         raise
     except SQLAlchemyError as error:
-        file_storage_service.delete_file(file_path=file_path)
+        # COMMIT may have succeeded even if its acknowledgment was lost. Keep
+        # the PDF for the durable intent; an orphan sweep removes absent rows.
+        # Deleting here could destroy a successfully committed upload.
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Could not save uploaded document",
+            detail="Could not confirm upload. Check the document list before uploading again.",
         ) from error
 
     request.state.audit_resource_id = document.id
