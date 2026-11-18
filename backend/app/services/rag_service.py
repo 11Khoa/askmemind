@@ -208,7 +208,7 @@ class RagService:
                 logging.INFO,
                 "rag.agent.completed",
                 retry_count=agent_result.state.retry_count,
-                rewritten_query=agent_result.state.rewritten_query,
+                query_rewritten=agent_result.state.rewritten_query is not None,
                 retrieval_score=round(
                     agent_result.state.retrieval_score,
                     4,
