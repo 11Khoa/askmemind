@@ -86,14 +86,25 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
   }, [t, expire])
 
   const applySnapshot = useCallback((snapshot: Document[], knownAtStart: ReadonlySet<string>) => {
+    const previous = new Map(documentsRef.current.map((document) => [document.id, document]))
     const next = mergeDocumentSnapshot(snapshot, documentsRef.current, knownAtStart, documentEventsRef.current)
+    for (const document of next) {
+      if (previous.get(document.id)?.status !== 'processing') continue
+      if (READY_STATUSES.has(document.status)) {
+        setNotice({ kind: 'success', message: t('documents.readyToSearch', { filename: document.original_filename }) })
+      } else if (FAILED_STATUSES.has(document.status)) {
+        setNotice({ kind: 'error', message: t('documents.failedToProcess', { filename: document.original_filename }) })
+      } else if (document.status === 'cancelled') {
+        setNotice({ kind: 'success', message: t('documents.cancelledNotice', { filename: document.original_filename }) })
+      }
+    }
     documentsRef.current = next
     setDocuments(next)
     const ids = new Set(next.map((document) => document.id))
     setSelectedDocumentId((current) => current && ids.has(current) ? current : next.find(isReadyDocument)?.id || null)
     setViewSource((current) => current && !ids.has(current.document_id) ? null : current)
     for (const id of documentEventsRef.current.keys()) if (!ids.has(id)) documentEventsRef.current.delete(id)
-  }, [])
+  }, [t])
 
   useEffect(() => {
     documentsRef.current = documents
