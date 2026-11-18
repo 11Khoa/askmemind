@@ -1,3 +1,5 @@
+import os
+import tempfile
 from pathlib import Path
 
 
@@ -13,7 +15,20 @@ class FileStorageService:
 
         file_path = self.upload_dir / filename
 
-        file_path.write_bytes(file_bytes)
+        # Publish only a fully flushed file; failures leave no partial PDF.
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=self.upload_dir, prefix=".upload-", suffix=".part", delete=False,
+            ) as temporary:
+                temporary_path = Path(temporary.name)
+                temporary.write(file_bytes)
+                temporary.flush()
+                os.fsync(temporary.fileno())
+            os.replace(temporary_path, file_path)
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
 
         return str(file_path)
 
