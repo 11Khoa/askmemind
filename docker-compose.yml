@@ -56,12 +56,12 @@ services:
       retries: 5
     restart: unless-stopped
 
-  celery-worker:
+  celery-worker: &processing-worker
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: askmemind-celery-worker
-    command: ["celery", "-A", "app.core.celery_app", "worker", "--loglevel=INFO", "--concurrency=${CELERY_WORKER_CONCURRENCY:-2}", "--max-tasks-per-child=20"]
+    command: ["celery", "-A", "app.core.celery_app", "worker", "--loglevel=INFO", "--queues=documents,celery", "--concurrency=${CELERY_WORKER_CONCURRENCY:-1}", "--max-tasks-per-child=20"]
     env_file:
       - .env
     environment:
@@ -77,6 +77,11 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+
+  celery-maintenance:
+    <<: *processing-worker
+    container_name: askmemind-celery-maintenance
+    command: ["celery", "-A", "app.core.celery_app", "worker", "--loglevel=INFO", "--queues=maintenance", "--concurrency=1", "--max-tasks-per-child=100"]
 
   celery-beat:
     build:

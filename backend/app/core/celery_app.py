@@ -12,6 +12,20 @@ celery_app = Celery(
 celery_app.conf.update(
     beat_schedule={"demo-expiration": {"task": "demo.cleanup", "schedule": 300.0},
                    "document-outbox": {"task": "documents.dispatch", "schedule": 30.0}},
+    task_routes={
+        "documents.process": {"queue": "documents"},
+        "documents.dispatch": {"queue": "maintenance"},
+        "demo.cleanup": {"queue": "maintenance"},
+        "auth.send_password_reset": {"queue": "maintenance"},
+    },
+    task_annotations={"documents.process": {
+        "time_limit": settings.document_task_time_limit_seconds,
+        "soft_time_limit": settings.document_task_time_limit_seconds - 30,
+    }},
+    task_publish_retry=False,
+    broker_connection_timeout=3,
+    broker_transport_options={"socket_connect_timeout": 3, "socket_timeout": 5,
+                              "visibility_timeout": settings.document_task_time_limit_seconds + 600},
     task_acks_late=True,
     task_reject_on_worker_lost=True,
     task_track_started=True,

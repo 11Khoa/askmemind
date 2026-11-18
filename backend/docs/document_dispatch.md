@@ -21,3 +21,17 @@ SQL commit acknowledgment can be ambiguous. Upload SQL errors retain the PDF
 rather than delete a potentially committed document's file. An orphan file sweep
 is needed for genuinely absent rows. A broker or dispatcher failure never clears
 saved pages/chunks. Deploy the migration before API/workers/Beat.
+
+## Queue isolation and deadlines
+
+New processing uses `documents`; cleanup, dispatch and password reset use
+`maintenance`. Compose adds `celery-maintenance` with concurrency 1 and the same
+upload volume. The processing worker also drains legacy `celery` messages during
+rollout. Start maintenance before routing new tasks, and retain Beat for recovery.
+Default document concurrency is now 1 for the small VPS. Increase only after load
+measurement. An OCR burst cannot consume the maintenance worker's slot.
+
+`DOCUMENT_TASK_TIME_LIMIT_SECONDS` defaults to 3600; soft limit is 30s earlier,
+Redis visibility is 600s later. Native page/document guards normally stop work
+sooner. Hard kills still rely on attempt guards/outbox/late acknowledgment for
+recovery; this does not make provider calls exactly once.
