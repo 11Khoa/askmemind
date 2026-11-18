@@ -6,16 +6,18 @@ celery_app = Celery(
     'askmemind',
     broker=settings.resolved_celery_broker_url,
     backend=settings.resolved_celery_result_backend,
-    include=['app.tasks.document_processing', 'app.tasks.password_reset', 'app.tasks.demo_cleanup', 'app.tasks.document_dispatch'],
+    include=['app.tasks.document_processing', 'app.tasks.password_reset', 'app.tasks.demo_cleanup', 'app.tasks.document_dispatch', 'app.tasks.file_cleanup'],
 )
 
 celery_app.conf.update(
     beat_schedule={"demo-expiration": {"task": "demo.cleanup", "schedule": 300.0},
-                   "document-outbox": {"task": "documents.dispatch", "schedule": 30.0}},
+                   "document-outbox": {"task": "documents.dispatch", "schedule": 30.0},
+                   "abandoned-uploads": {"task": "storage.cleanup", "schedule": 3600.0}},
     task_routes={
         "documents.process": {"queue": "documents"},
         "documents.dispatch": {"queue": "maintenance"},
         "demo.cleanup": {"queue": "maintenance"},
+        "storage.cleanup": {"queue": "maintenance"},
         "auth.send_password_reset": {"queue": "maintenance"},
     },
     task_annotations={"documents.process": {

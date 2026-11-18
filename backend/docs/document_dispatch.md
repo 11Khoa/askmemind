@@ -35,3 +35,11 @@ measurement. An OCR burst cannot consume the maintenance worker's slot.
 Redis visibility is 600s later. Native page/document guards normally stop work
 sooner. Hard kills still rely on attempt guards/outbox/late acknowledgment for
 recovery; this does not make provider calls exactly once.
+
+`storage.cleanup` runs hourly on the maintenance queue. It removes only
+unreferenced UUID-named PDFs and `.upload-*.part` files older than 24 hours,
+up to 500 per run. Every document filename reference (including normal-user
+records) is retained, and symlinks/unrecognized files are skipped. This covers
+abandoned writes and ambiguous database commit failures without deleting an
+upload whose database transaction actually committed. The upload directory
+must remain writable only by trusted application processes.
