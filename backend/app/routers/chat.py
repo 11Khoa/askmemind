@@ -1,3 +1,4 @@
+from app.core.concurrency import generation_slot
 from app.core.demo_dependencies import require_demo_notice, require_demo_upload, get_data_scope
 from app.core.data_scope import DataScope
 import json
@@ -141,7 +142,7 @@ def create_user_message(
 
 @router.post(
     "/{chat_id}/questions", response_model=ChatMessageRead,
-    dependencies=[Depends(require_demo_notice), Depends(limit_questions)],
+    dependencies=[Depends(require_demo_notice), Depends(limit_questions), Depends(generation_slot)],
 )
 def create_rag_question(
     chat_id: uuid.UUID,
@@ -169,7 +170,7 @@ def create_rag_question(
         ) from error
 
 
-@router.post("/{chat_id}/questions/stream", dependencies=[Depends(require_demo_notice), Depends(limit_questions)])
+@router.post("/{chat_id}/questions/stream", dependencies=[Depends(require_demo_notice), Depends(limit_questions), Depends(generation_slot)])
 def stream_rag_question(
     request: Request,
     chat_id: uuid.UUID,

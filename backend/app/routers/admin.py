@@ -1,3 +1,4 @@
+from app.core.concurrency import sse_slot
 import uuid
 from pydantic import BaseModel, ConfigDict, Field
 from app.models.demo_session import DemoSession
@@ -47,7 +48,7 @@ def paginate(query, page, page_size, serialize=lambda row: row):
             "total": query.order_by(None).count(), "page": page, "page_size": page_size}
 
 
-@router.get("/documents/events")
+@router.get("/documents/events", dependencies=[Depends(sse_slot)])
 async def document_events(request: Request, admin: Admin, db: DB):
     # require_admin authenticates before the stream opens; release its database
     # connection while idle. Bounded streams reauthorize on every reconnect.

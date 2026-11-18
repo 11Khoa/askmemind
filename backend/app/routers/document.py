@@ -1,3 +1,4 @@
+from app.core.concurrency import sse_slot
 from app.core.demo_dependencies import require_demo_notice, require_demo_upload, get_data_scope
 from app.core.data_scope import DataScope
 import uuid
@@ -129,7 +130,7 @@ def list_documents(
         ) from error
 
 
-@router.get("/events")
+@router.get("/events", dependencies=[Depends(sse_slot)])
 async def stream_document_events(
     request: Request,
     current_user: Annotated[User, Depends(get_current_user)],

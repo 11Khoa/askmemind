@@ -40,3 +40,31 @@ class TokenStore:
             return self.client.eval(script, 1, f"auth:rate:{key}", window) <= limit
         except RedisError as error:
             raise TokenStoreUnavailable() from error
+
+
+    def acquire_slots(self, keys, limits, token, ttl):
+        script = """
+        local t=redis.call('TIME')
+        local now=tonumber(t[1])+tonumber(t[2])/1000000
+        for i,key in ipairs(KEYS) do
+            redis.call('ZREMRANGEBYSCORE',key,'-inf',now)
+            if redis.call('ZCARD',key)>=tonumber(ARGV[i+2]) then return 0 end
+        end
+        for i,key in ipairs(KEYS) do
+            redis.call('ZADD',key,now+tonumber(ARGV[2]),ARGV[1])
+            redis.call('EXPIRE',key,tonumber(ARGV[2])+1)
+        end
+        return 1
+        """
+        try:
+            return bool(self.client.eval(script,len(keys),*keys,token,ttl,*limits))
+        except RedisError as error:
+            raise TokenStoreUnavailable() from error
+
+    def release_slots(self, keys, token):
+        try:
+            with self.client.pipeline() as pipeline:
+                for key in keys: pipeline.zrem(key,token)
+                pipeline.execute()
+        except RedisError as error:
+            raise TokenStoreUnavailable() from error
