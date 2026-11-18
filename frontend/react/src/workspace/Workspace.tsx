@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { DemoSessionBanner } from './components/DemoWorkspace'
 import { useDemo } from './components/demoContext'
 import { isTransientConnectionError } from '../lib/documentEvents'
+import { mergeDocumentSnapshot } from '../lib/documentSnapshot'
 import { reconcileDocumentEvent } from '../lib/documentProgress'
 import type { DocumentConnectionState } from '../lib/documentEvents'
 import { api, ApiError, isAbortError } from '../lib/api'
@@ -44,6 +45,7 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
   const [documents, setDocuments] = useState<Document[]>([])
   const [documentConnection, setDocumentConnection] = useState<DocumentConnectionState>('connecting')
   const documentsRef = useRef<Document[]>([])
+  const requestSnapshotRef = useRef<() => void>(() => {})
   const documentEventsRef = useRef(new Map<string, DocumentStatusEvent>())
   const retryingRef = useRef(new Set<string>())
   const [retryingIds, setRetryingIds] = useState<ReadonlySet<string>>(new Set())
@@ -82,22 +84,32 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
     })
   }, [t, expire])
 
+  const applySnapshot = useCallback((snapshot: Document[], knownAtStart: ReadonlySet<string>) => {
+    const next = mergeDocumentSnapshot(snapshot, documentsRef.current, knownAtStart, documentEventsRef.current)
+    documentsRef.current = next
+    setDocuments(next)
+    const ids = new Set(next.map((document) => document.id))
+    setSelectedDocumentId((current) => current && ids.has(current) ? current : next.find(isReadyDocument)?.id || null)
+    setViewSource((current) => current && !ids.has(current.document_id) ? null : current)
+    for (const id of documentEventsRef.current.keys()) if (!ids.has(id)) documentEventsRef.current.delete(id)
+  }, [])
+
   useEffect(() => {
     documentsRef.current = documents
   }, [documents])
 
   useEffect(() => {
+    let active = true
     async function loadWorkspace() {
+      const knownAtStart = new Set(documentsRef.current.map((document) => document.id))
       try {
         const [currentUser, currentDocuments, currentChats] = await Promise.all([
           api.me(), api.listDocuments(), api.listChats(),
         ])
+        if (!active) return
         setUser(currentUser)
-        setDocuments(currentDocuments)
+        applySnapshot(currentDocuments, knownAtStart)
         setChats(currentChats)
-        setSelectedDocumentId(
-          currentDocuments.find(isReadyDocument)?.id || null,
-        )
         if (currentChats.length > 0) {
           setLoadingMessages(true)
           setSelectedChatId(currentChats[0].id)
@@ -109,7 +121,8 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
       }
     }
     void loadWorkspace()
-  }, [handleError])
+    return () => { active = false }
+  }, [handleError, applySnapshot])
 
   const receiveDocumentEvent = useCallback((event: DocumentStatusEvent) => {
     const currentDocument = documentsRef.current.find(
@@ -122,7 +135,7 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
     if (!cached?.updated_at || eventTime === null || eventTime >= Date.parse(cached.updated_at)) {
       documentEventsRef.current.set(event.document_id, event)
     }
-    if (!currentDocument) return
+    if (!currentDocument) { requestSnapshotRef.current(); return }
     const updatedDocument = reconcileDocumentEvent(currentDocument, event)
     if (!updatedDocument) return
     documentsRef.current = documentsRef.current.map((document) => (
@@ -150,19 +163,40 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
     }
   }, [t])
 
-  useEffect(() => api.subscribeDocumentEvents(receiveDocumentEvent, handleError, {
-    onState: setDocumentConnection,
-    onConnected: async (signal) => {
-      const latest = await api.listDocuments(signal)
-      if (signal.aborted) return
-      latest.forEach((document) => receiveDocumentEvent({
-        document_id: document.id, status: document.status, page_count: document.page_count,
-        error_message: document.error_message, processing_attempt_id: document.processing_attempt_id,
-        processing_progress: document.processing_progress,
-        updated_at: document.updated_at,
-      }))
-    },
-  }), [receiveDocumentEvent, handleError])
+  useEffect(() => {
+    let active = true, inFlight = false, pending = false
+    const lifetime = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let lastFetch = 0
+    async function refresh(signal = lifetime.signal) {
+      if (!active || signal.aborted) return
+      if (inFlight) { pending = true; return }
+      inFlight = true; lastFetch = Date.now()
+      const knownAtStart = new Set(documentsRef.current.map((document) => document.id))
+      try {
+        const latest = await api.listDocuments(signal)
+        if (active && !signal.aborted) applySnapshot(latest, knownAtStart)
+      } finally {
+        inFlight = false
+        if (pending && active) { pending = false; schedule() }
+      }
+    }
+    function schedule() {
+      if (!active || timer) return
+      timer = setTimeout(() => {
+        timer = undefined
+        void refresh().catch((error: unknown) => { if (active && !isAbortError(error)) handleError(error) })
+      }, Math.max(0, 2000 - (Date.now() - lastFetch)))
+    }
+    requestSnapshotRef.current = schedule
+    const stop = api.subscribeDocumentEvents(receiveDocumentEvent, handleError, {
+      onState: setDocumentConnection, onConnected: refresh,
+    })
+    return () => {
+      active = false; lifetime.abort(); stop(); clearTimeout(timer)
+      requestSnapshotRef.current = () => {}
+    }
+  }, [receiveDocumentEvent, handleError, applySnapshot])
 
   useEffect(() => {
     const processing = documents.filter((document) => document.status === 'processing')
