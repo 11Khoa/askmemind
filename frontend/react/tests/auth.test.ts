@@ -62,14 +62,21 @@ it('does not replay an old refresh token after a late 401 response', async () =>
   expect(refreshCalls()).toHaveLength(1)
 })
 
-it.each(['invalid', 'network'])('discards a refresh token after %s failure and never replays it', async (failure) => {
+it.each(['invalid', 'network'])('handles %s refresh failure without replaying a token from JavaScript', async (failure) => {
   fetchMock.mockResolvedValueOnce(unauthorized())
   if (failure === 'invalid') fetchMock.mockResolvedValueOnce(unauthorized())
   else fetchMock.mockRejectedValueOnce(new TypeError('Network failure'))
   await expect(api.me()).rejects.toThrow()
-  expect(session.get()).toBeNull()
-  await expect(api.me()).rejects.toMatchObject({ status: 401 })
-  expect(fetchMock).toHaveBeenCalledTimes(2)
+  if (failure === 'invalid') {
+    expect(session.get()).toBeNull()
+    await expect(api.me()).rejects.toMatchObject({ status: 401 })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  } else {
+    expect(session.get()).toEqual(original)
+    fetchMock.mockResolvedValueOnce(unauthorized()).mockResolvedValueOnce(json(rotated)).mockResolvedValueOnce(json({ id: 'user' }))
+    await api.me()
+    expect(session.get()).toEqual(rotated)
+  }
 })
 
 it('stops after one retry if the new access token is also rejected', async () => {
@@ -189,6 +196,7 @@ it('rejects malformed refresh responses instead of marking the user authenticate
   fetchMock.mockResolvedValueOnce(json({ token_type: 'bearer' }))
   await expect(restoreSession()).rejects.toMatchObject({ status: 502 })
   expect(session.status()).toBe('anonymous')
+  expect(session.get()).toBeNull()
 })
 
 it('preserves rate-limit errors from the backend', async () => {

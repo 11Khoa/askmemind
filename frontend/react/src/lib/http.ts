@@ -71,7 +71,11 @@ async function refreshTokens(original: TokenResponse | null) {
       const next = await readAccessToken(response)
       if (!session.finishRefresh(version, next)) throw new ApiError('Please sign in again', 401)
     } catch (error) {
-      session.failRefresh(version)
+      // A temporary outage does not revoke the browser's authenticated session.
+      // Only an explicit authentication rejection clears workspace state.
+      if (!original || (error instanceof ApiError && (error.status === 401 || error.status === 403))) {
+        session.failRefresh(version)
+      }
       throw error
     } finally {
       if (refreshing?.version === version) refreshing = null
