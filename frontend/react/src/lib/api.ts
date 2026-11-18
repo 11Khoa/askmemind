@@ -165,6 +165,11 @@ export const api = {
       signal,
     })
 
+    if (!response.headers.get('content-type')?.includes('text/event-stream')) {
+      await response.body?.cancel()
+      throw new ApiError('Answer endpoint did not return an event stream', 502)
+    }
+    let completed = false
     await readSseStream(response, (frame) => {
       const data = frame.data as { token?: string; detail?: string }
       if (frame.event === 'token') {
@@ -172,10 +177,12 @@ export const api = {
       } else if (frame.event === 'replace') {
         handlers.onReplace(data.token || '')
       } else if (frame.event === 'final') {
+        completed = true
         handlers.onFinal(frame.data as ChatMessage)
       } else if (frame.event === 'error') {
         throw new ApiError(data.detail || 'Streaming answer failed', 500)
       }
     })
+    if (!completed) throw new ApiError('The answer stream ended before completion. Please try again.', 502)
   },
 }
