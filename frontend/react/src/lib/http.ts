@@ -33,12 +33,12 @@ function fetchResponse(path: string, options: RequestInit, accessToken?: string)
   if (options.body && !(options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json')
   }
-  if (COOKIE_AUTH_PATHS.has(path)) headers.set('X-CSRF-Protection', '1')
+  if (COOKIE_AUTH_PATHS.has(path) || !['GET', 'HEAD', 'OPTIONS'].includes((options.method || 'GET').toUpperCase())) headers.set('X-CSRF-Protection', '1')
   return fetch(`${API_BASE_URL}${path}`, {
     ...options,
     headers,
     credentials: 'include',
-    ...(COOKIE_AUTH_PATHS.has(path) ? { cache: 'no-store' as const } : {}),
+    ...(COOKIE_AUTH_PATHS.has(path) || path.startsWith('/demo/') ? { cache: 'no-store' as const } : {}),
   })
 }
 
@@ -71,7 +71,11 @@ async function refreshTokens(original: TokenResponse | null) {
       const next = await readAccessToken(response)
       if (!session.finishRefresh(version, next)) throw new ApiError('Please sign in again', 401)
     } catch (error) {
-      session.failRefresh(version)
+      // A temporary outage does not revoke the browser's authenticated session.
+      // Only an explicit authentication rejection clears workspace state.
+      if (!original || (error instanceof ApiError && (error.status === 401 || error.status === 403))) {
+        session.failRefresh(version)
+      }
       throw error
     } finally {
       if (refreshing?.version === version) refreshing = null

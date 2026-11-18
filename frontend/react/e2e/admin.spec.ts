@@ -9,7 +9,7 @@ async function setup(page: import('@playwright/test').Page, role: 'admin' | 'use
     { id: 'admin-1', email: 'admin@example.com', role: 'admin', is_active: true },
     { id: 'user-1', email: 'client@example.com', role: 'user', is_active: true },
   ]
-  const documents = [{ id: 'doc-1', user_id: 'user-1', owner_email: 'client@example.com', original_filename: 'Private.pdf', status: 'ready', page_count: 3, file_size_bytes: 100, updated_at: now }]
+  const documents = [{ id: 'doc-1', user_id: 'user-1', owner_email: 'client@example.com', original_filename: 'Private.pdf', status: 'ready', page_count: 3, file_size_bytes: 100, created_at: '2026-10-23T18:32:00Z', updated_at: now }]
   const chats = [{ id: 'chat-1', user_id: 'user-1', owner_email: 'client@example.com', title: 'Private conversation', updated_at: now }]
   const writes: { path: string; body: unknown }[] = []
   await page.route('**/api/**', async (route) => {
@@ -93,6 +93,12 @@ test('admin inspects other users documents, conversations and activity', async (
   await page.goto('/admin')
   await page.getByRole('button', { name: 'Documents', exact: true }).click()
   await expect(page.getByRole('table')).toContainText('client@example.com')
+  await expect(page.getByRole('columnheader', { name: 'Uploaded at', exact: true })).toBeVisible()
+  const uploaded = page.locator('.admin-uploaded time')
+  await expect(uploaded).toHaveAttribute('datetime', '2026-10-23T18:32:00Z')
+  await expect(uploaded).toContainText('24 Oct 2026')
+  await expect(uploaded).toContainText('01:32 GMT+7')
+  await page.screenshot({ path: testInfo.outputPath('admin-documents-redesign.png'), fullPage: true })
   await page.getByRole('button', { name: 'View PDF', exact: true }).click()
   await expect(page.getByRole('dialog').getByRole('link', { name: 'Open PDF at page 1' })).toBeVisible()
   await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click()

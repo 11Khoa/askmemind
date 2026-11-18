@@ -43,9 +43,9 @@ for (const path of ['/admin', '/admin/']) {
   test(`admin survives direct open and refresh at ${path}`, async ({ page }) => {
     await mockSessions(page, 'admin')
     expect((await page.goto(path))?.status()).toBe(200)
-    await expect(page.getByRole('heading', { name: 'Administration', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Users', exact: true })).toBeVisible()
     expect((await page.reload())?.status()).toBe(200)
-    await expect(page.getByRole('heading', { name: 'Administration', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Users', exact: true })).toBeVisible()
   })
 }
 
@@ -55,11 +55,11 @@ test('browser back and forward keep the admin route and view in sync', async ({ 
   if ((page.viewportSize()?.width || 1440) < 1100) await page.getByRole('button', { name: 'Close documents', exact: true }).click()
   if ((page.viewportSize()?.width || 1440) < 760) await page.getByRole('button', { name: 'Open navigation' }).click()
   await page.getByRole('button', { name: 'Administration', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Administration', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Users', exact: true })).toBeVisible()
   await page.goBack()
   await expect(page.locator('.workspace')).toBeVisible()
   await page.goForward()
-  await expect(page.getByRole('heading', { name: 'Administration', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Users', exact: true })).toBeVisible()
 })
 
 test('admin can sign out and sign back in without a document 404', async ({ page }) => {

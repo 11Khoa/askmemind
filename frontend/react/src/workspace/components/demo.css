@@ -1,0 +1,14 @@
+.demo-session-banner { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 12px 20px; border-bottom: 1px solid #d7e8e2; background: #edf7f3; font-size: 12px; color: #426859; }
+.demo-session-banner small { display: block; margin-top: 4px; color: #6b8277; }
+.demo-session-banner button, .demo-session-screen button { padding: 9px 12px; border: 1px solid #c9dad2; border-radius: 8px; background: white; color: #526c60; cursor: pointer; }
+.demo-session-screen { min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center; background: #f6faf8; color: #365247; }
+.demo-session-screen h1 { font-size: 24px; }
+.demo-session-screen p { max-width: 540px; }
+.demo-notice { line-height: 1.7; color: #4d6057; }
+.demo-notice small { display: block; font-size: 12px; color: #7a867f; }
+.demo-error { position: fixed; z-index: 100; bottom: 24px; left: 50%; transform: translateX(-50%); padding: 16px; border: 1px solid #d7a79e; border-radius: 10px; background: #fff5f1; max-width: 90vw; }
+.demo-config-form { display: grid; gap: 18px; }
+.demo-config-form label { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.demo-config-form input[type=number] { width: 100px; padding: 8px; border: 1px solid #d2ddd7; border-radius: 6px; }
+.demo-config-form input[type=checkbox] { width: 17px; height: 17px; accent-color: #088474; }
+.demo-config-form small { color: #738075; line-height: 1.6; }

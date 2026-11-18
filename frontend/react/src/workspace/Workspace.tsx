@@ -2,6 +2,12 @@ import { BookOpenText, LoaderCircle } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { DemoSessionBanner } from './components/DemoWorkspace'
+import { useDemo } from './components/demoContext'
+import { isTransientConnectionError } from '../lib/documentEvents'
+import { mergeDocumentSnapshot } from '../lib/documentSnapshot'
+import { reconcileDocumentEvent } from '../lib/documentProgress'
+import type { DocumentConnectionState } from '../lib/documentEvents'
 import { api, ApiError, isAbortError } from '../lib/api'
 import { MAX_FILE_SIZE_MB, MAX_FILE_SIZE_BYTES } from "../lib/constants";
 import type {
@@ -32,26 +38,21 @@ function isReadyDocument(document: Document) {
   return READY_STATUSES.has(document.status)
 }
 
-function applyDocumentEvent(document: Document, event: DocumentStatusEvent): Document {
-  return {
-    ...document,
-    status: event.status,
-    page_count: event.page_count ?? document.page_count,
-    error_message: event.error_message,
-    processing_attempt_id: event.processing_attempt_id ?? document.processing_attempt_id,
-    updated_at: event.updated_at ?? document.updated_at,
-  }
-}
-
 export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
   const { t } = useTranslation()
+  const { beforeAction, status: demoStatus, expire } = useDemo()
   const [user, setUser] = useState<User | null>(null)
   const [documents, setDocuments] = useState<Document[]>([])
+  const [documentConnection, setDocumentConnection] = useState<DocumentConnectionState>('connecting')
   const documentsRef = useRef<Document[]>([])
+  const requestSnapshotRef = useRef<() => void>(() => {})
   const documentEventsRef = useRef(new Map<string, DocumentStatusEvent>())
   const retryingRef = useRef(new Set<string>())
   const [retryingIds, setRetryingIds] = useState<ReadonlySet<string>>(new Set())
+  const cancellingRef = useRef(new Set<string>())
+  const [cancellingIds, setCancellingIds] = useState<ReadonlySet<string>>(new Set())
   const abortRef = useRef<AbortController | null>(null)
+  const submittingRef = useRef(false)
   const [chats, setChats] = useState<Chat[]>([])
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
@@ -74,6 +75,7 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
 
 
   const handleError = useCallback((caught: unknown) => {
+    if (caught instanceof ApiError && caught.status === 410) { expire(); return }
     if (caught instanceof ApiError && caught.status === 401) {
       return
     }
@@ -81,6 +83,27 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
       kind: 'error',
       message: caught instanceof Error ? caught.message : t('common.genericError'),
     })
+  }, [t, expire])
+
+  const applySnapshot = useCallback((snapshot: Document[], knownAtStart: ReadonlySet<string>) => {
+    const previous = new Map(documentsRef.current.map((document) => [document.id, document]))
+    const next = mergeDocumentSnapshot(snapshot, documentsRef.current, knownAtStart, documentEventsRef.current)
+    for (const document of next) {
+      if (previous.get(document.id)?.status !== 'processing') continue
+      if (READY_STATUSES.has(document.status)) {
+        setNotice({ kind: 'success', message: t('documents.readyToSearch', { filename: document.original_filename }) })
+      } else if (FAILED_STATUSES.has(document.status)) {
+        setNotice({ kind: 'error', message: t('documents.failedToProcess', { filename: document.original_filename }) })
+      } else if (document.status === 'cancelled') {
+        setNotice({ kind: 'success', message: t('documents.cancelledNotice', { filename: document.original_filename }) })
+      }
+    }
+    documentsRef.current = next
+    setDocuments(next)
+    const ids = new Set(next.map((document) => document.id))
+    setSelectedDocumentId((current) => current && ids.has(current) ? current : next.find(isReadyDocument)?.id || null)
+    setViewSource((current) => current && !ids.has(current.document_id) ? null : current)
+    for (const id of documentEventsRef.current.keys()) if (!ids.has(id)) documentEventsRef.current.delete(id)
   }, [t])
 
   useEffect(() => {
@@ -88,17 +111,17 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
   }, [documents])
 
   useEffect(() => {
+    let active = true
     async function loadWorkspace() {
+      const knownAtStart = new Set(documentsRef.current.map((document) => document.id))
       try {
         const [currentUser, currentDocuments, currentChats] = await Promise.all([
           api.me(), api.listDocuments(), api.listChats(),
         ])
+        if (!active) return
         setUser(currentUser)
-        setDocuments(currentDocuments)
+        applySnapshot(currentDocuments, knownAtStart)
         setChats(currentChats)
-        setSelectedDocumentId(
-          currentDocuments.find(isReadyDocument)?.id || null,
-        )
         if (currentChats.length > 0) {
           setLoadingMessages(true)
           setSelectedChatId(currentChats[0].id)
@@ -110,7 +133,8 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
       }
     }
     void loadWorkspace()
-  }, [handleError])
+    return () => { active = false }
+  }, [handleError, applySnapshot])
 
   const receiveDocumentEvent = useCallback((event: DocumentStatusEvent) => {
     const currentDocument = documentsRef.current.find(
@@ -123,16 +147,9 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
     if (!cached?.updated_at || eventTime === null || eventTime >= Date.parse(cached.updated_at)) {
       documentEventsRef.current.set(event.document_id, event)
     }
-    if (!currentDocument) return
-    const sameAttempt = event.processing_attempt_id === undefined ||
-      event.processing_attempt_id === currentDocument.processing_attempt_id
-    // A newer attempt may have been initiated in another browser tab.
-    if (!sameAttempt && !(eventTime !== null && currentTime !== null && eventTime > currentTime)) return
-    if (sameAttempt && currentDocument.status === event.status) return
-    if (sameAttempt && event.status === 'processing' &&
-        (READY_STATUSES.has(currentDocument.status) || FAILED_STATUSES.has(currentDocument.status))) return
-
-    const updatedDocument = applyDocumentEvent(currentDocument, event)
+    if (!currentDocument) { requestSnapshotRef.current(); return }
+    const updatedDocument = reconcileDocumentEvent(currentDocument, event)
+    if (!updatedDocument) return
     documentsRef.current = documentsRef.current.map((document) => (
       document.id === event.document_id ? updatedDocument : document
     ))
@@ -146,6 +163,8 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
           filename: updatedDocument.original_filename,
         }),
       })
+    } else if (event.status === 'cancelled') {
+      setNotice({ kind: 'success', message: t('documents.cancelledNotice', { filename: updatedDocument.original_filename }) })
     } else if (FAILED_STATUSES.has(event.status)) {
       setNotice({
         kind: 'error',
@@ -156,8 +175,40 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
     }
   }, [t])
 
-  useEffect(() => api.subscribeDocumentEvents(receiveDocumentEvent, handleError),
-    [receiveDocumentEvent, handleError])
+  useEffect(() => {
+    let active = true, inFlight = false, pending = false
+    const lifetime = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let lastFetch = 0
+    async function refresh(signal = lifetime.signal) {
+      if (!active || signal.aborted) return
+      if (inFlight) { pending = true; return }
+      inFlight = true; lastFetch = Date.now()
+      const knownAtStart = new Set(documentsRef.current.map((document) => document.id))
+      try {
+        const latest = await api.listDocuments(signal)
+        if (active && !signal.aborted) applySnapshot(latest, knownAtStart)
+      } finally {
+        inFlight = false
+        if (pending && active) { pending = false; schedule() }
+      }
+    }
+    function schedule() {
+      if (!active || timer) return
+      timer = setTimeout(() => {
+        timer = undefined
+        void refresh().catch((error: unknown) => { if (active && !isAbortError(error)) handleError(error) })
+      }, Math.max(0, 2000 - (Date.now() - lastFetch)))
+    }
+    requestSnapshotRef.current = schedule
+    const stop = api.subscribeDocumentEvents(receiveDocumentEvent, handleError, {
+      onState: setDocumentConnection, onConnected: refresh,
+    })
+    return () => {
+      active = false; lifetime.abort(); stop(); clearTimeout(timer)
+      requestSnapshotRef.current = () => {}
+    }
+  }, [receiveDocumentEvent, handleError, applySnapshot])
 
   useEffect(() => {
     const processing = documents.filter((document) => document.status === 'processing')
@@ -176,10 +227,11 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
           status: document.status,
           page_count: document.page_count,
           error_message: document.error_message,
+          processing_progress: document.processing_progress,
           updated_at: document.updated_at,
         }))
       } catch (caught) {
-        if (active) handleError(caught)
+        if (active && !isTransientConnectionError(caught)) handleError(caught)
       } finally {
         polling = false
       }
@@ -216,6 +268,7 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
   }
 
   async function createChat(title: string | null = null) {
+    if (!(await beforeAction())) return null
     try {
       const chat = await api.createChat(title)
       setChats((current) => [chat, ...current])
@@ -231,7 +284,10 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
 
   async function sendQuestion() {
     const content = question.trim()
-    if (!content || sending) return
+    if (!content || sending || submittingRef.current) return
+    submittingRef.current = true
+    try {
+    if (!(await beforeAction())) return
     setQuestion('')
     setNotice(null)
     setSending(true)
@@ -317,9 +373,11 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
       setSending(false)
       if(abortRef.current === controller) abortRef.current = null
     }
+    } finally { submittingRef.current = false }
   }
 
   async function uploadDocument(file: File) {
+    if (!(await beforeAction(true))) return
     if (file.type !== 'application/pdf') {
       setNotice({ kind: 'error', message: t('documents.choosePdf') })
       return
@@ -367,6 +425,7 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
   }
 
   async function retryDocument(documentId: string) {
+    if (!(await beforeAction(true))) return
     if (retryingRef.current.has(documentId)) return
     retryingRef.current.add(documentId)
     setRetryingIds(new Set(retryingRef.current))
@@ -395,6 +454,25 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
     } finally {
       retryingRef.current.delete(documentId)
       setRetryingIds(new Set(retryingRef.current))
+    }
+  }
+
+  async function cancelDocument(documentId: string) {
+    if (cancellingRef.current.has(documentId)) return
+    cancellingRef.current.add(documentId)
+    setCancellingIds(new Set(cancellingRef.current))
+    try {
+      const document = await api.cancelDocument(documentId)
+      receiveDocumentEvent({ ...document, document_id: document.id })
+    } catch (caught) {
+      handleError(caught)
+      try {
+        const document = await api.getDocument(documentId)
+        receiveDocumentEvent({ ...document, document_id: document.id })
+      } catch { /* Keep the current row until reconciliation succeeds. */ }
+    } finally {
+      cancellingRef.current.delete(documentId)
+      setCancellingIds(new Set(cancellingRef.current))
     }
   }
 
@@ -476,6 +554,7 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
           onToggleDocuments={() => setDocumentsOpen((current) => !current)}
         />
 
+        <DemoSessionBanner />
         <MessageList
           loading={loadingMessages}
           sending={sending && !streamingHasContent}
@@ -508,7 +587,11 @@ export function Workspace({ onLogout, onAdmin }: WorkspaceProps) {
         selectedDocumentId={selectedDocumentId}
         open={documentsOpen}
         uploading={uploading}
+        uploadDisabled={demoStatus?.is_demo && !demoStatus.upload_enabled}
         retryingIds={retryingIds}
+        cancellingIds={cancellingIds}
+        onCancel={(documentId) => void cancelDocument(documentId)}
+        connectionState={documentConnection}
         canDelete={user?.role === 'admin'}
         busy={sending || deleting}
         onDelete={(document) => { setDeleteError(''); setDeleteTarget({ kind: 'document', id: document.id, name: document.original_filename }) }}
